@@ -108,6 +108,15 @@ async def check_update() -> Dict[str, Any]:
     return await loop.run_in_executor(None, updater.check_for_update)
 
 
+@app.post("/download-update")
+async def download_update() -> Dict[str, Any]:
+    """Descarga el paquete liviano y lo deja listo para el próximo arranque.
+
+    Devuelve enseguida: el avance se sigue por `progress` en /update-status."""
+    updater.download_in_background()
+    return updater.get_state()
+
+
 @app.get("/model-status")
 async def model_status() -> Dict[str, Any]:
     """Estado de la precarga: loading | ready | error.

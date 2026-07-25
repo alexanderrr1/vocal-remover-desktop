@@ -68,6 +68,26 @@ if sys.stdout is None or sys.stderr is None:
 # Make sure `app` is importable when frozen (bundled next to the executable).
 sys.path.insert(0, str(base_dir()))
 
+# ── Auto-update: aplicar antes de cargar nada de la app ─────────────────────
+# Si hay una actualización descargada y verificada, este es el único momento
+# seguro para reemplazar archivos: el código todavía no se importó y ningún
+# archivo está en uso. Después relanzamos el proceso, porque seguir con los
+# módulos viejos en memoria y los nuevos en disco es un estado mixto que da
+# fallos imposibles de diagnosticar.
+from app.updater import apply_staged_update  # noqa: E402
+
+if os.environ.get("VR_UPDATE_APPLIED") != "1" and apply_staged_update():
+    import subprocess
+
+    env = dict(os.environ, VR_UPDATE_APPLIED="1")  # cinturón contra un bucle
+    subprocess.Popen(
+        [sys.executable, str(base_dir() / "desktop.py")],
+        cwd=str(base_dir()),
+        env=env,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+    )
+    sys.exit(0)
+
 import uvicorn  # noqa: E402
 import webview  # noqa: E402
 from app.main import app  # noqa: E402
