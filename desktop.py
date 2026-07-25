@@ -188,6 +188,42 @@ class Api:
             return {"ok": False, "error": f"No se pudo guardar: {exc}"}
         return {"ok": True, "path": str(dest)}
 
+    def restart_for_update(self) -> dict:
+        """Relanza la app para que la actualización preparada se aplique.
+
+        El reemplazo de archivos lo hace el proceso nuevo al arrancar, antes de
+        importar nada: acá solo lanzamos el reemplazo y cerramos esta ventana."""
+        from app.updater import staged_version
+
+        if not staged_version():
+            return {"ok": False, "error": "No hay ninguna actualización preparada."}
+
+        from app.job_store import jobs, JobStatus
+
+        activos = [
+            j for j in jobs.values()
+            if j.get("status") not in (JobStatus.DONE, JobStatus.FAILED)
+        ]
+        if activos:
+            return {"ok": False, "error": "Hay un procesamiento en curso. "
+                                          "Esperá a que termine y reintentá."}
+
+        import subprocess
+
+        try:
+            subprocess.Popen(
+                [sys.executable, str(base_dir() / "desktop.py")],
+                cwd=str(base_dir()),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+            )
+        except Exception as exc:
+            return {"ok": False, "error": f"No se pudo reiniciar: {exc}"}
+
+        # Cerrar esta ventana termina el proceso viejo y libera los archivos
+        # antes de que el nuevo llegue a reemplazarlos.
+        webview.active_window().destroy()
+        return {"ok": True}
+
 
 def run_server() -> None:
     uvicorn.run(app, host=HOST, port=PORT, log_level="warning")

@@ -296,6 +296,56 @@ button.download.visible { display: block; }
 .model-banner.error .spinner { display: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Update banner ── */
+.update-banner {
+  display: none;
+  margin-bottom: 1rem;
+  background: rgba(16,185,129,0.08);
+  border: 1px solid rgba(16,185,129,0.4);
+  border-radius: 8px;
+  padding: 0.8rem 1rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.update-banner.visible { display: block; }
+.update-banner .row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.update-banner .msg { flex: 1 1 auto; min-width: 12rem; }
+.update-banner strong { color: var(--success); }
+.update-banner a { color: var(--text-dim); font-size: 0.8rem; }
+.update-banner button {
+  flex: 0 0 auto;
+  background: var(--success);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 0.5rem 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.update-banner button:hover:not(:disabled) { background: #059669; }
+.update-banner button:disabled { opacity: 0.55; cursor: default; }
+.update-banner .track {
+  margin-top: 0.6rem;
+  height: 5px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.update-banner .track > div {
+  height: 100%;
+  width: 0;
+  background: var(--success);
+  border-radius: 99px;
+  transition: width 0.3s ease;
+}
+
 /* ── Footer ── */
 footer {
   margin-top: 1.5rem;
@@ -317,6 +367,16 @@ footer {
 
   <div class="model-banner" id="model-banner">
     <span class="spinner"></span><span id="model-banner-text">Preparando el modelo de IA...</span>
+  </div>
+
+  <div class="update-banner" id="update-banner">
+    <div class="row">
+      <div class="msg" id="update-text"></div>
+      <button id="update-btn" onclick="updateAction()"></button>
+    </div>
+    <div class="track" id="update-track" style="display:none">
+      <div id="update-fill"></div>
+    </div>
   </div>
 
   <label class="field-label" for="model-select">Modelo de IA</label>
@@ -564,12 +624,112 @@ async function pollModelStatus() {
   setTimeout(pollModelStatus, 1500);
 }
 
+// ── Actualizaciones ────────────────────────────────────────────────────────
+// El banner solo aparece cuando hay algo que ofrecer. Si no hay internet o
+// GitHub no responde, no se muestra nada: que la app no pueda comprobar si
+// tiene actualizaciones no es un problema del usuario.
+let updateState = null;
+
+function mb(bytes) {
+  return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function renderUpdate(s) {
+  updateState = s;
+  const banner = document.getElementById('update-banner');
+  const text   = document.getElementById('update-text');
+  const btn    = document.getElementById('update-btn');
+  const track  = document.getElementById('update-track');
+  const fill   = document.getElementById('update-fill');
+
+  const mostrar = ['update-available', 'downloading', 'staged'].includes(s.status);
+  banner.classList.toggle('visible', mostrar);
+  if (!mostrar) return;
+
+  track.style.display = (s.status === 'downloading') ? 'block' : 'none';
+
+  if (s.status === 'update-available') {
+    const peso = s.package_size ? ' · ' + mb(s.package_size) : '';
+    const link = s.html_url
+      ? ` <a href="#" onclick="openNotes(event)">ver novedades</a>`
+      : '';
+    text.innerHTML = `Hay una versión nueva: <strong>${s.latest}</strong>${peso}${link}`;
+    btn.textContent = 'Actualizar';
+    btn.disabled = !s.package_url;
+    if (!s.package_url) {
+      text.innerHTML = `Hay una versión nueva: <strong>${s.latest}</strong>. ` +
+        `Se actualiza reinstalando desde la página de descargas.${link}`;
+    }
+  } else if (s.status === 'downloading') {
+    text.textContent = `Descargando la versión ${s.latest}...`;
+    btn.textContent = 'Descargando';
+    btn.disabled = true;
+    fill.style.width = (s.progress || 0) + '%';
+  } else if (s.status === 'staged') {
+    text.innerHTML = `La versión <strong>${s.latest}</strong> está lista. ` +
+      `Se aplica al reiniciar la aplicación.`;
+    btn.textContent = 'Reiniciar ahora';
+    btn.disabled = false;
+  }
+}
+
+function openNotes(ev) {
+  ev.preventDefault();
+  if (updateState?.html_url) window.open(updateState.html_url, '_blank');
+}
+
+async function updateAction() {
+  const btn = document.getElementById('update-btn');
+
+  if (updateState?.status === 'staged') {
+    btn.disabled = true;
+    if (window.pywebview?.api?.restart_for_update) {
+      const res = await window.pywebview.api.restart_for_update();
+      if (!res?.ok) {
+        document.getElementById('update-text').textContent =
+          res?.error || 'No se pudo reiniciar.';
+        btn.disabled = false;
+      }
+    } else {
+      document.getElementById('update-text').textContent =
+        'Cerrá y volvé a abrir la aplicación para aplicar la actualización.';
+    }
+    return;
+  }
+
+  btn.disabled = true;
+  try {
+    await fetch('/download-update', { method: 'POST' });
+  } catch {
+    btn.disabled = false;
+    return;
+  }
+  pollUpdateStatus(true);
+}
+
+async function pollUpdateStatus(seguir) {
+  try {
+    const resp = await fetch('/update-status');
+    if (!resp.ok) return;
+    const s = await resp.json();
+    renderUpdate(s);
+    // Solo insistimos mientras haya una descarga en curso.
+    if (seguir && s.status === 'downloading') {
+      setTimeout(() => pollUpdateStatus(true), 700);
+    }
+  } catch {
+    // Silencio deliberado: sin conexión no hay nada que informar.
+  }
+}
+
 document.getElementById('url-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') submitJob();
 });
 
 loadRuntimeInfo();
 pollModelStatus();
+// El chequeo lo hace el backend al arrancar; acá solo leemos el resultado.
+setTimeout(() => pollUpdateStatus(false), 1200);
 </script>
 </body>
 </html>
