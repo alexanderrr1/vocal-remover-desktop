@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from . import updater
 from .job_store import JobStatus, jobs
 from .processor import ALLOWED_MODELS, DEFAULT_MODEL, get_runtime_info, run_pipeline
 
@@ -40,6 +41,10 @@ async def lifespan(app: FastAPI):
     print(f"[startup] Pre-loading model '{model}' en segundo plano...")
     # Sin await a propósito: uvicorn empieza a atender ya mismo.
     loop.run_in_executor(_executor, _warm_model_guarded, model)
+
+    # Chequeo de actualizaciones: hilo propio, no el executor, que está ocupado
+    # con la carga del modelo. Falla en silencio si no hay internet.
+    updater.check_in_background()
 
     yield
     _executor.shutdown(wait=False)
@@ -86,6 +91,21 @@ async def health() -> Dict[str, str]:
 @app.get("/runtime")
 async def runtime() -> Dict[str, Any]:
     return get_runtime_info()
+
+
+@app.get("/update-status")
+async def update_status() -> Dict[str, Any]:
+    """Resultado del chequeo de versión: up-to-date | update-available | error.
+
+    Se consulta una vez al arrancar; este endpoint solo lee el resultado."""
+    return updater.get_state()
+
+
+@app.post("/check-update")
+async def check_update() -> Dict[str, Any]:
+    """Re-consulta a demanda, para no depender de reiniciar la app."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, updater.check_for_update)
 
 
 @app.get("/model-status")
