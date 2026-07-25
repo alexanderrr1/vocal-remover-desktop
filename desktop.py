@@ -55,6 +55,21 @@ os.environ.setdefault("DEMUCS_DEVICE", "auto")
 # desde aquí; si la carpeta no existe, cae al PATH del sistema (desarrollo).
 os.environ.setdefault("VR_BIN_DIR", str(base_dir() / "bin"))
 
+# Raíces de certificados: en un Windows recién instalado el almacén del sistema
+# está casi vacío (las descarga bajo demanda el navegador, y ese mecanismo no
+# se dispara desde Python), lo que hace fallar cualquier HTTPS con
+# CERTIFICATE_VERIFY_FAILED. certifi viaja en el paquete; apuntando estas
+# variables, ssl.load_default_certs() lo suma vía set_default_verify_paths()
+# y deja de depender del estado del sistema operativo.
+try:
+    import certifi as _certifi
+
+    _CA = _certifi.where()
+    os.environ.setdefault("SSL_CERT_FILE", _CA)
+    os.environ.setdefault("REQUESTS_CA_BUNDLE", _CA)
+except Exception:
+    pass  # sin certifi se sigue con el almacén del sistema
+
 # Bajo pythonw.exe (lanzador sin consola) no hay stdout/stderr y cualquier
 # print() crashea. Redirigimos a un log en la carpeta de datos del usuario.
 if sys.stdout is None or sys.stderr is None:

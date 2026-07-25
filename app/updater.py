@@ -19,6 +19,7 @@ import json
 import os
 import re
 import shutil
+import ssl
 import threading
 import urllib.request
 import zipfile
@@ -140,6 +141,28 @@ def read_local_version() -> Optional[str]:
 # ── Consulta a GitHub ───────────────────────────────────────────────────────
 
 
+def _ssl_context() -> Optional[ssl.SSLContext]:
+    """Contexto TLS con las raíces de certifi, que viajan en el paquete.
+
+    En Windows, Python valida contra el almacén de certificados del sistema.
+    En una instalación recién hecha ese almacén está casi vacío: Windows
+    descarga las raíces bajo demanda cuando el navegador las necesita, y ese
+    mecanismo no se dispara desde Python. Resultado: CERTIFICATE_VERIFY_FAILED
+    contra api.github.com en una PC nueva, mientras que en la máquina de
+    desarrollo funciona porque ahí el almacén ya está poblado.
+
+    Usar el bundle de certifi hace que la validación no dependa del estado del
+    sistema operativo. Si por algún motivo no estuviera, se cae al
+    comportamiento por defecto en vez de romper."""
+    try:
+        import certifi
+
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception as exc:
+        print(f"[updater] Sin certifi, se usa el almacén del sistema ({exc}).")
+        return None
+
+
 def _fetch_latest_release() -> Dict[str, Any]:
     # GitHub rechaza pedidos sin User-Agent con 403.
     req = urllib.request.Request(
@@ -149,7 +172,7 @@ def _fetch_latest_release() -> Dict[str, Any]:
             "User-Agent": f"VocalRemover/{read_local_version() or 'dev'}",
         },
     )
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+    with urllib.request.urlopen(req, timeout=TIMEOUT, context=_ssl_context()) as resp:
         return json.load(resp)
 
 
@@ -241,7 +264,8 @@ def _download(url: str, dest: Path, on_progress=None) -> None:
     contenido incompleto."""
     tmp = dest.with_suffix(dest.suffix + ".part")
     req = urllib.request.Request(url, headers={"User-Agent": "VocalRemover"})
-    with urllib.request.urlopen(req, timeout=30) as resp, open(tmp, "wb") as fh:
+    with urllib.request.urlopen(req, timeout=30, context=_ssl_context()) as resp, \
+            open(tmp, "wb") as fh:
         total = int(resp.headers.get("Content-Length") or 0)
         done = 0
         while True:
