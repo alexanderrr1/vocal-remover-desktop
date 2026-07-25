@@ -1,0 +1,18 @@
+# Vocal Remover Desktop — dependencias (CPU, portable a cualquier PC Windows)
+#
+# PyTorch CPU se instala aparte con su índice propio (ver README / install.ps1):
+#   pip install torch==2.1.2 torchaudio==2.1.2 --index-url https://download.pytorch.org/whl/cpu
+
+# diffq (modelo cuantizado mdx_extra_q) se omite a propósito: requiere un
+# compilador C en Windows. Usamos mdx_extra (misma calidad, sin compilar).
+numpy<2
+demucs==4.0.1
+soundfile
+yt-dlp
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+websockets==12.0
+aiofiles==23.2.1
+
+# Ventana nativa de escritorio (usa WebView2, presente en Windows 10/11)
+pywebview==5.1

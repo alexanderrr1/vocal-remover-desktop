@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Build / packaging
+build/
+dist/
+*.spec.bak
+
+# Binarios empaquetados (se copian con scripts/prepare_bin.ps1; ffmpeg supera
+# el límite de 100 MB de GitHub). Se conserva bin/README.md.
+bin/*
+!bin/README.md
+
+# App runtime data (nunca se versiona)
+workspace/
+models/
+
+# Runtime Python portable (se genera con scripts/build_runtime.ps1, ~1,5 GB)
+runtime/
+
+# Instalador compilado y lanzador local (artefactos de build)
+dist_installer/
+VocalRemover.lnk
+
+# OS
+Thumbs.db
+Desktop.ini

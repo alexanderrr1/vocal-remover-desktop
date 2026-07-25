@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Vocal Remover — Karaoke</title>
+<link rel="icon" type="image/png" href="/static/logo.png">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:           #0c0c10;
+  --surface:      #16161f;
+  --surface2:     #1e1e2a;
+  --border:       #2a2a3a;
+  --accent:       #7c3aed;
+  --accent-light: #9d5cf6;
+  --accent-glow:  rgba(124,58,237,0.35);
+  --text:         #e8e8f0;
+  --text-dim:     #7a7a96;
+  --success:      #10b981;
+  --error:        #ef4444;
+  --radius:       14px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124,58,237,0.15), transparent);
+}
+
+/* ── Card ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2.5rem 2.75rem;
+  width: 100%;
+  max-width: 560px;
+  box-shadow: 0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.04) inset;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.35rem;
+}
+.icon {
+  width: 44px; height: 44px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.icon img { width: 100%; height: 100%; object-fit: contain; }
+h1 { font-size: 1.45rem; font-weight: 700; letter-spacing: -0.02em; }
+.subtitle { color: var(--text-dim); font-size: 0.875rem; margin-bottom: 2rem; }
+.runtime-note {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  margin-top: -1.35rem;
+  margin-bottom: 1.5rem;
+}
+
+/* ── Field label ── */
+.field-label {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 0.45rem;
+}
+
+/* ── Select ── */
+select {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  padding: 0.6rem 0.85rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  margin-bottom: 1.25rem;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%237a7a96' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.85rem center;
+  padding-right: 2.2rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+select:focus { border-color: var(--accent); }
+
+/* ── URL input ── */
+input[type=url] {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 1rem;
+  color: var(--text);
+  font-size: 0.9rem;
+  outline: none;
+  margin-bottom: 1.25rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+input[type=url]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+input[type=url]::placeholder { color: var(--text-dim); }
+
+/* ── Panels (Tonalidad / Velocidad) ── */
+.panel {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.25rem 0.9rem;
+  margin-bottom: 1rem;
+}
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+.panel-header .field-label { margin-bottom: 0; }
+.panel-value {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-light);
+  white-space: nowrap;
+}
+
+/* ── Range slider ── */
+input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 18px;
+  background: transparent;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  display: block;
+  padding: 0;
+}
+input[type=range]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 99px;
+  background: var(--border);
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  margin-top: -7px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  box-shadow: 0 0 6px var(--accent-glow);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+
+/* ── Slider scale labels ── */
+.slider-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  margin-top: 0.2rem;
+  padding: 0 9px;
+}
+
+/* ── Primary button ── */
+button.primary {
+  width: 100%;
+  background: linear-gradient(135deg, var(--accent), var(--accent-light));
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.85rem 1.25rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 1.5rem;
+  transition: opacity 0.2s, transform 0.1s, box-shadow 0.2s;
+  box-shadow: 0 4px 14px var(--accent-glow);
+}
+button.primary:hover:not(:disabled) {
+  opacity: 0.9;
+  box-shadow: 0 6px 20px var(--accent-glow);
+}
+button.primary:active:not(:disabled) { transform: scale(0.97); }
+button.primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Progress ── */
+#progress-section { display: none; }
+#progress-section.visible { display: block; }
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.5rem;
+}
+.status-text { font-size: 0.875rem; color: var(--text-dim); }
+.pct-text { font-size: 0.875rem; font-weight: 600; color: var(--accent-light); }
+.track {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  height: 8px;
+  overflow: hidden;
+  margin-bottom: 1.75rem;
+}
+.fill {
+  background: linear-gradient(90deg, var(--accent), var(--accent-light));
+  height: 100%;
+  width: 0%;
+  border-radius: 99px;
+  transition: width 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+/* ── Download button ── */
+button.download {
+  display: none;
+  width: 100%;
+  background: var(--success);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  box-shadow: 0 4px 16px rgba(16,185,129,0.3);
+}
+button.download:hover { background: #059669; }
+button.download:active { transform: scale(0.98); }
+button.download.visible { display: block; }
+
+/* ── Error box ── */
+.error-box {
+  display: none;
+  margin-top: 1rem;
+  background: rgba(239,68,68,0.08);
+  border: 1px solid rgba(239,68,68,0.4);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.85rem;
+  color: var(--error);
+  word-break: break-word;
+}
+.error-box.visible { display: block; }
+
+/* ── Model loading banner ── */
+.model-banner {
+  display: none;
+  margin-bottom: 1rem;
+  background: rgba(59,130,246,0.08);
+  border: 1px solid rgba(59,130,246,0.35);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.model-banner.visible { display: block; }
+.model-banner.error {
+  background: rgba(239,68,68,0.08);
+  border-color: rgba(239,68,68,0.4);
+  color: var(--error);
+}
+.model-banner .spinner {
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-right: 0.5em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  vertical-align: -0.1em;
+}
+.model-banner.error .spinner { display: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Footer ── */
+footer {
+  margin-top: 1.5rem;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  text-align: center;
+}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <div class="header">
+    <div class="icon"><img src="/static/logo.png" alt="Vocal Remover"></div>
+    <h1>Vocal Remover</h1>
+  </div>
+  <p class="subtitle">Pega una URL de YouTube y obtén la pista instrumental lista para karaoke</p>
+  <p class="runtime-note" id="runtime-note">Detectando aceleración disponible...</p>
+
+  <div class="model-banner" id="model-banner">
+    <span class="spinner"></span><span id="model-banner-text">Preparando el modelo de IA...</span>
+  </div>
+
+  <label class="field-label" for="model-select">Modelo de IA</label>
+  <select id="model-select">
+    <option value="mdx_extra" selected>mdx_extra — Rápido (recomendado para CPU)</option>
+    <option value="htdemucs">htdemucs — Alta calidad (más lento en CPU)</option>
+    <option value="htdemucs_ft">htdemucs_ft — Máxima calidad (muy lento en CPU)</option>
+  </select>
+
+  <label class="field-label" for="url-input">URL de YouTube</label>
+  <input type="url" id="url-input"
+         placeholder="https://www.youtube.com/watch?v=..."
+         autocomplete="off" spellcheck="false">
+
+  <label class="field-label" for="pitch-slider">Tonalidad</label>
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-value" id="pitch-label">0 — Original</span>
+    </div>
+    <input type="range" id="pitch-slider" min="-12" max="12" step="1" value="0"
+           list="pitch-ticks" oninput="updatePitchLabel(this.value)">
+    <datalist id="pitch-ticks">
+      <option value="-12"></option><option value="-6"></option>
+      <option value="0"></option><option value="6"></option>
+      <option value="12"></option>
+    </datalist>
+    <div class="slider-scale">
+      <span>-12</span><span>-6</span><span>0</span><span>+6</span><span>+12</span>
+    </div>
+  </div>
+
+  <label class="field-label" for="tempo-slider">Velocidad</label>
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-value" id="tempo-label">1.00x — Original</span>
+    </div>
+    <input type="range" id="tempo-slider" min="0.5" max="2.0" step="0.05" value="1.0"
+           list="tempo-ticks" oninput="updateTempoLabel(this.value)">
+    <datalist id="tempo-ticks">
+      <option value="0.5"></option><option value="1.0"></option>
+      <option value="1.5"></option><option value="2.0"></option>
+    </datalist>
+    <div class="slider-scale">
+      <span>0.5x</span><span>1.0x</span><span>1.5x</span><span>2.0x</span>
+    </div>
+  </div>
+
+  <button class="primary" id="submit-btn" onclick="submitJob()" disabled>Procesar</button>
+
+  <div id="progress-section">
+    <div class="progress-header">
+      <span class="status-text" id="status-text">Iniciando...</span>
+      <span class="pct-text" id="pct-text">0%</span>
+    </div>
+    <div class="track">
+      <div class="fill" id="progress-fill"></div>
+    </div>
+  </div>
+
+  <button class="download" id="download-btn" onclick="downloadResult()">
+    Descargar Instrumental (MP3)
+  </button>
+
+  <div class="error-box" id="error-box"></div>
+</div>
+
+<footer>Vocal Remover · Powered by Demucs + CUDA · Uso local</footer>
+
+<script>
+let currentJobId = null;
+let ws = null;
+
+function updatePitchLabel(val) {
+  const n = parseInt(val);
+  const el = document.getElementById('pitch-label');
+  if (n === 0) el.textContent = '0 — Original';
+  else el.textContent = (n > 0 ? '+' : '') + n + (Math.abs(n) === 1 ? ' semitono' : ' semitonos');
+}
+
+function updateTempoLabel(val) {
+  const n = parseFloat(val);
+  const el = document.getElementById('tempo-label');
+  if (n === 1.0) el.textContent = '1.00x — Original';
+  else el.textContent = n.toFixed(2) + 'x';
+}
+
+function setProgress(pct, message) {
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('pct-text').textContent = pct + '%';
+  document.getElementById('status-text').textContent = message;
+}
+
+function showError(msg) {
+  const box = document.getElementById('error-box');
+  box.textContent = msg;
+  box.classList.add('visible');
+  document.getElementById('submit-btn').disabled = false;
+}
+
+function setUI(state) {
+  const submitBtn = document.getElementById('submit-btn');
+  const progressSec = document.getElementById('progress-section');
+  const downloadBtn = document.getElementById('download-btn');
+
+  submitBtn.disabled = (state === 'processing');
+  progressSec.classList.toggle('visible', state === 'processing' || state === 'done');
+  downloadBtn.classList.toggle('visible', state === 'done');
+}
+
+async function submitJob() {
+  const url = document.getElementById('url-input').value.trim();
+  if (!url) { document.getElementById('url-input').focus(); return; }
+
+  document.getElementById('error-box').classList.remove('visible');
+  document.getElementById('download-btn').classList.remove('visible');
+  currentJobId = null;
+  if (ws) { ws.close(); ws = null; }
+
+  setUI('processing');
+  setProgress(0, 'Enviando solicitud...');
+
+  const model = document.getElementById('model-select').value;
+  const semitones = parseInt(document.getElementById('pitch-slider').value);
+  const tempo = parseFloat(document.getElementById('tempo-slider').value);
+
+  let resp;
+  try {
+    resp = await fetch('/process', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ youtube_url: url, model, semitones, tempo }),
+    });
+  } catch {
+    return showError('No se puede conectar al servidor interno de la app.');
+  }
+
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    return showError(data.detail || 'Error del servidor: ' + resp.status);
+  }
+
+  const { job_id } = await resp.json();
+  currentJobId = job_id;
+  openWebSocket(job_id);
+}
+
+function openWebSocket(jobId) {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws/${jobId}`);
+
+  ws.onmessage = ({ data }) => {
+    const msg = JSON.parse(data);
+    if (msg.error) return showError(msg.error);
+    setProgress(msg.progress ?? 0, msg.message ?? msg.status);
+    if (msg.status === 'done') {
+      setUI('done');
+      setProgress(100, '¡Listo! La pista instrumental está lista para descargar.');
+    } else if (msg.status === 'failed') {
+      showError(msg.message || 'El procesamiento falló');
+      setUI('idle');
+    }
+  };
+
+  ws.onerror = () => showError('Se perdió la conexión WebSocket');
+  ws.onclose = () => { ws = null; };
+}
+
+async function downloadResult() {
+  if (!currentJobId) return;
+
+  // App de escritorio: diálogo nativo "Guardar como" (WebView2 no descarga solo)
+  if (window.pywebview?.api?.save_result) {
+    try {
+      const res = await window.pywebview.api.save_result(currentJobId);
+      if (res?.ok) {
+        setProgress(100, 'Guardado en: ' + res.path);
+      } else if (!res?.cancelled) {
+        showError(res?.error || 'No se pudo guardar el archivo.');
+      }
+    } catch (e) {
+      showError('No se pudo guardar el archivo: ' + e);
+    }
+    return;
+  }
+
+  // Fallback: navegador web normal
+  window.location.href = `/download/${currentJobId}`;
+}
+
+async function loadRuntimeInfo() {
+  try {
+    const resp = await fetch('/runtime');
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const note = document.getElementById('runtime-note');
+    if (data.selected_device === 'cuda') {
+      const gpu = data.gpu_name ? ` (${data.gpu_name})` : '';
+      note.textContent = `Motor activo: GPU${gpu}`;
+    } else {
+      note.textContent = `Motor activo: CPU`;
+    }
+  } catch {
+    // Leave the default message if the runtime endpoint is unavailable.
+  }
+}
+
+// El modelo se precarga en segundo plano (puede descargar ~640 MB la primera
+// vez). Hasta que esté listo el botón queda deshabilitado: encolar un job sin
+// modelo se vería como un cuelgue sin explicación.
+async function pollModelStatus() {
+  const banner = document.getElementById('model-banner');
+  const text = document.getElementById('model-banner-text');
+  const submitBtn = document.getElementById('submit-btn');
+
+  try {
+    const resp = await fetch('/model-status');
+    if (!resp.ok) throw new Error('sin respuesta');
+    const data = await resp.json();
+
+    if (data.status === 'ready') {
+      banner.classList.remove('visible');
+      submitBtn.disabled = false;
+      return;                                  // listo: no seguimos consultando
+    }
+
+    if (data.status === 'error') {
+      banner.classList.add('visible', 'error');
+      text.textContent = 'No se pudo cargar el modelo: ' +
+        (data.error || 'error desconocido') +
+        '. Revisá tu conexión a internet y reiniciá la aplicación.';
+      submitBtn.disabled = true;
+      return;                                  // no se recupera solo
+    }
+
+    banner.classList.add('visible');
+    text.textContent = 'Preparando el modelo de IA. La primera vez se descargan ' +
+      'unos 640 MB, puede tardar varios minutos.';
+    submitBtn.disabled = true;
+  } catch {
+    banner.classList.add('visible');
+    text.textContent = 'Conectando con el motor interno de la aplicación...';
+    submitBtn.disabled = true;
+  }
+
+  setTimeout(pollModelStatus, 1500);
+}
+
+document.getElementById('url-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') submitJob();
+});
+
+loadRuntimeInfo();
+pollModelStatus();
+</script>
+</body>
+</html>

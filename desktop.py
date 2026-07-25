@@ -1,0 +1,212 @@
+"""
+Vocal Remover — Desktop entry point.
+
+Runs the existing FastAPI app on a private localhost port inside a background
+thread, then opens a native window (PyWebView / WebView2) pointed at it.
+
+Works both in development (`python desktop.py`) and when frozen into an
+executable (PyInstaller / embedded-Python launcher).
+"""
+import os
+import shutil
+import socket
+import sys
+import threading
+import time
+import urllib.request
+from pathlib import Path
+
+APP_NAME = "Vocal Remover"
+
+
+def base_dir() -> Path:
+    """Folder that holds this app's code, in dev and when frozen."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent
+    return Path(__file__).resolve().parent
+
+
+def data_dir() -> Path:
+    """Per-user, writable folder for the workspace and model cache."""
+    root = os.environ.get("LOCALAPPDATA") or str(Path.home())
+    d = Path(root) / "VocalRemover"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def find_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+# ── Configure the app BEFORE importing it ───────────────────────────────────
+# processor.py reads these env vars at import time, so they must be set first.
+DATA = data_dir()
+(DATA / "workspace").mkdir(parents=True, exist_ok=True)
+(DATA / "models").mkdir(parents=True, exist_ok=True)
+
+os.environ.setdefault("WORKSPACE", str(DATA / "workspace"))
+os.environ.setdefault("TORCH_HOME", str(DATA / "models"))
+os.environ.setdefault("XDG_CACHE_HOME", str(DATA / "models"))
+os.environ.setdefault("DEMUCS_DEVICE", "auto")
+
+# Binarios empaquetados (ffmpeg.exe, yt-dlp.exe). processor.py los resuelve
+# desde aquí; si la carpeta no existe, cae al PATH del sistema (desarrollo).
+os.environ.setdefault("VR_BIN_DIR", str(base_dir() / "bin"))
+
+# Bajo pythonw.exe (lanzador sin consola) no hay stdout/stderr y cualquier
+# print() crashea. Redirigimos a un log en la carpeta de datos del usuario.
+if sys.stdout is None or sys.stderr is None:
+    try:
+        _log = open(DATA / "vocalremover.log", "a", encoding="utf-8", buffering=1)
+        sys.stdout = _log
+        sys.stderr = _log
+    except Exception:
+        pass
+
+# Make sure `app` is importable when frozen (bundled next to the executable).
+sys.path.insert(0, str(base_dir()))
+
+import uvicorn  # noqa: E402
+import webview  # noqa: E402
+from app.main import app  # noqa: E402
+
+HOST = "127.0.0.1"
+PORT = find_free_port()
+
+# Tamaño con el que se crea la ventana. Se ajusta al contenido real al cargar
+# (ver fit_to_content). Debe coincidir con lo pasado a create_window para que
+# la medición del "chrome" (barra de título + bordes) sea correcta.
+INIT_WIDTH = 640
+INIT_HEIGHT = 720
+
+
+def fit_to_content(window) -> None:
+    """Ajusta la ventana a la altura real de la card (sin scroll).
+
+    En pantallas chicas, capea al 92% del monitor y deja que aparezca scroll.
+    Mide el chrome de la ventana de forma empírica (outer - inner) para no
+    depender de constantes por backend."""
+    try:
+        m = window.evaluate_js(
+            "(function(){"
+            "var card=document.querySelector('.card')||document.body;"
+            "var r=card.getBoundingClientRect();"
+            "var cs=getComputedStyle(document.body);"
+            "return {"
+            " cardW: Math.ceil(r.width),"
+            " cardH: Math.ceil(r.height),"
+            " padH: Math.ceil(parseFloat(cs.paddingLeft)+parseFloat(cs.paddingRight)),"
+            " padV: Math.ceil(parseFloat(cs.paddingTop)+parseFloat(cs.paddingBottom)),"
+            " innerW: window.innerWidth,"
+            " innerH: window.innerHeight"
+            "};})()"
+        )
+        if not m:
+            return
+
+        chrome_w = max(0, INIT_WIDTH - int(m["innerW"]))
+        chrome_h = max(0, INIT_HEIGHT - int(m["innerH"]))
+        content_w = int(m["cardW"]) + int(m["padH"])
+        content_h = int(m["cardH"]) + int(m["padV"])
+
+        try:
+            screen = webview.screens[0]
+            max_w = int(screen.width * 0.92)
+            max_h = int(screen.height * 0.92)
+        except Exception:
+            max_w = max_h = 10 ** 6
+
+        target_w = min(content_w + chrome_w, max_w)
+        target_h = min(content_h + chrome_h, max_h)
+        window.resize(int(target_w), int(target_h))
+    except Exception:
+        pass
+
+
+class Api:
+    """JS API expuesta a la ventana: guardado nativo del resultado.
+
+    WebView2 no dispara descargas HTTP como un navegador, así que en vez de
+    navegar a /download usamos el diálogo nativo "Guardar como" y copiamos el
+    MP3 ya generado (accesible en este mismo proceso vía el job store).
+
+    Importante: esta clase NO debe guardar la ventana de PyWebView como atributo
+    — PyWebView inspecciona recursivamente el objeto js_api y romper al tocar el
+    DOM. La ventana se obtiene en el momento con webview.active_window()."""
+
+    def save_result(self, job_id: str) -> dict:
+        from app.job_store import jobs, JobStatus
+
+        job = jobs.get(job_id)
+        if not job or job.get("status") != JobStatus.DONE:
+            return {"ok": False, "error": "El resultado todavía no está listo."}
+
+        src = job.get("output_path")
+        if not src or not Path(src).exists():
+            return {"ok": False, "error": "No se encontró el archivo de salida."}
+
+        title = job.get("title") or "instrumental"
+        downloads = Path.home() / "Downloads"
+        directory = str(downloads if downloads.exists() else Path.home())
+
+        window = webview.active_window()
+        result = window.create_file_dialog(
+            webview.SAVE_DIALOG,
+            directory=directory,
+            save_filename=f"{title}.mp3",
+            file_types=("Audio MP3 (*.mp3)", "Todos los archivos (*.*)"),
+        )
+        if not result:
+            return {"ok": False, "cancelled": True}
+
+        dest = result[0] if isinstance(result, (list, tuple)) else result
+        try:
+            shutil.copy2(src, dest)
+        except Exception as exc:  # p. ej. permisos / disco
+            return {"ok": False, "error": f"No se pudo guardar: {exc}"}
+        return {"ok": True, "path": str(dest)}
+
+
+def run_server() -> None:
+    uvicorn.run(app, host=HOST, port=PORT, log_level="warning")
+
+
+def wait_until_ready(timeout: float = 60.0) -> bool:
+    """Poll /health until the server responds or the timeout elapses."""
+    deadline = time.time() + timeout
+    url = f"http://{HOST}:{PORT}/health"
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1):
+                return True
+        except Exception:
+            time.sleep(0.3)
+    return False
+
+
+def main() -> None:
+    threading.Thread(target=run_server, daemon=True).start()
+
+    if not wait_until_ready():
+        # Fall back to opening the window anyway; it will show a load error.
+        print("[desktop] Advertencia: el servidor no respondió a tiempo.", file=sys.stderr)
+
+    window = webview.create_window(
+        APP_NAME,
+        f"http://{HOST}:{PORT}/",
+        js_api=Api(),
+        width=INIT_WIDTH,
+        height=INIT_HEIGHT,
+        min_size=(420, 420),
+    )
+    # Al terminar de cargar, ajustar la ventana al tamaño de la card.
+    window.events.loaded += lambda: fit_to_content(window)
+
+    # We run our own uvicorn server; PyWebView just renders it.
+    webview.start()
+
+
+if __name__ == "__main__":
+    main()
