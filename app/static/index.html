@@ -714,15 +714,27 @@ async function updateAction() {
   pollUpdateStatus(true);
 }
 
-async function pollUpdateStatus(seguir) {
+async function pollUpdateStatus(seguir, intentos = 0) {
   try {
     const resp = await fetch('/update-status');
     if (!resp.ok) return;
     const s = await resp.json();
     renderUpdate(s);
-    // Solo insistimos mientras haya una descarga en curso.
+
+    // El chequeo contra GitHub corre al arrancar el servidor y puede tardar
+    // más que la carga de esta página. Si todavía no terminó hay que volver a
+    // mirar: consultar una sola vez y rendirse dejaba el banner sin aparecer
+    // aunque hubiera una versión nueva.
+    if (s.status === 'idle' || s.status === 'checking') {
+      if (intentos < 25) {
+        setTimeout(() => pollUpdateStatus(seguir, intentos + 1), 800);
+      }
+      return;
+    }
+
+    // Y mientras haya una descarga en curso, para mover la barra.
     if (seguir && s.status === 'downloading') {
-      setTimeout(() => pollUpdateStatus(true), 700);
+      setTimeout(() => pollUpdateStatus(true, 0), 700);
     }
   } catch {
     // Silencio deliberado: sin conexión no hay nada que informar.
