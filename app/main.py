@@ -90,7 +90,11 @@ async def health() -> Dict[str, str]:
 
 @app.get("/runtime")
 async def runtime() -> Dict[str, Any]:
-    return get_runtime_info()
+    # La versión se compone acá y no en get_runtime_info(), que es sobre el
+    # dispositivo de cómputo y no tiene por qué saber de versionado.
+    info = get_runtime_info()
+    info["version"] = updater.read_local_version()
+    return info
 
 
 @app.get("/update-status")

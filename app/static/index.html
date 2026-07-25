@@ -443,7 +443,7 @@ footer {
   <div class="error-box" id="error-box"></div>
 </div>
 
-<footer>Vocal Remover · Powered by Demucs + CUDA · Uso local</footer>
+<footer>Vocal Remover <span id="app-version"></span> · Powered by Demucs · Uso local</footer>
 
 <script>
 let currentJobId = null;
@@ -571,6 +571,13 @@ async function loadRuntimeInfo() {
     const resp = await fetch('/runtime');
     if (!resp.ok) return;
     const data = await resp.json();
+
+    // Versión en el pie: sirve para saber de un vistazo si una actualización
+    // se aplicó, y para que el usuario pueda decir qué versión tiene.
+    if (data.version) {
+      document.getElementById('app-version').textContent = 'v' + data.version;
+    }
+
     const note = document.getElementById('runtime-note');
     if (data.selected_device === 'cuda') {
       const gpu = data.gpu_name ? ` (${data.gpu_name})` : '';
