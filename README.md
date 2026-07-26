@@ -1,20 +1,82 @@
-# Vocal Remover — Desktop
+# Vocal Remover
 
-Versión de escritorio (Windows) del Vocal Remover. Corre localmente en una
-ventana nativa; internamente usa el mismo backend FastAPI + Demucs que la
-versión web, pero sin Docker y sin navegador.
+Quita la voz de un video de YouTube y te devuelve la pista instrumental, lista
+para karaoke. Aplicación de escritorio para Windows: corre **entera en tu PC** y
+no sube nada a ningún servidor.
+
+## Descargar
+
+**[⬇ Descargar la última versión](https://github.com/alexanderrr1/vocal-remover-desktop/releases/latest)**
+
+Bajá el archivo `VocalRemover-Setup-<versión>.exe` de la sección **Assets** y
+ejecutalo.
+
+### Windows va a mostrarte una advertencia
+
+Al abrir el instalador aparece una pantalla azul que dice que **Windows protegió
+tu PC**. Hacé clic en **"Más información"** y después en **"Ejecutar de todas
+formas"**.
+
+Aparece porque el instalador no está firmado con un certificado digital, que
+cuesta cientos de dólares por año. No significa que el programa sea peligroso:
+significa que Microsoft no conoce al autor. Todo el código está en este
+repositorio para que puedas verificarlo.
+
+Durante la instalación se descargan unos **640 MB** del modelo de inteligencia
+artificial, con barra de progreso. Es la única espera, ocurre una sola vez, y al
+terminar la aplicación queda lista.
+
+No necesitás instalar Python, ffmpeg ni nada más: viene todo adentro. Se instala
+solo para tu usuario y **no pide permisos de administrador**.
+
+## Cómo se usa
+
+Pegá la URL del video, elegí el modelo y dale **Procesar**. Cuando termina,
+**Descargar Instrumental** abre el "Guardar como" de Windows y el archivo toma
+el nombre del video.
+
+Podés además cambiar la **tonalidad** hasta 12 semitonos y la **velocidad**
+entre 0,5x y 2x, útil para practicar.
+
+El procesamiento usa el procesador de tu PC y tarda unos minutos según el largo
+del tema y la máquina.
+
+## Se actualiza sola
+
+Cuando haya una versión nueva, la aplicación te avisa dentro de la ventana y la
+instalás con un clic: descarga unos 17 MB en vez de los 242 MB del instalador
+completo, y se reinicia sola. Si en ese momento no tenés internet, no pasa nada
+ni aparece ningún error.
+
+## Requisitos
+
+- Windows 10 u 11, 64 bits
+- Unos 3 GB de espacio libre
+- Conexión a internet, para bajar el modelo la primera vez y los videos después
+
+---
+
+# Desarrollo
+
+Todo lo que sigue es para trabajar sobre el proyecto. Si solo querés usar la
+aplicación, con lo de arriba alcanza.
+
+Internamente usa el mismo backend FastAPI + Demucs que la versión web
+(`../02_Vocal_Remover`), pero sin Docker y sin navegador.
 
 ```
 YouTube URL → yt-dlp → ffmpeg (WAV) → Demucs → ffmpeg (MP3) → descarga
 ```
 
-## Requisitos
+## Requisitos de desarrollo
 
 - **Python 3.11** (x64)
 - **ffmpeg** en el PATH (verificá con `ffmpeg -version`)
 - Windows 10/11 (WebView2 viene incluido)
+- **Inno Setup 6.1+** para compilar el instalador
+- **GitHub CLI** (`gh`) autenticado, para publicar releases
 
-## Puesta en marcha (desarrollo)
+## Puesta en marcha
 
 ```powershell
 .\install.ps1                       # crea el venv e instala todo (CPU)
@@ -25,7 +87,7 @@ La primera separación descarga los pesos del modelo Demucs (~640 MB) a
 `%LOCALAPPDATA%\VocalRemover\models`. Los archivos temporales de cada trabajo
 van a `%LOCALAPPDATA%\VocalRemover\workspace`.
 
-## Diferencias con la versión web (`../02_Vocal_Remover`)
+## Diferencias con la versión web
 
 - `desktop.py` levanta uvicorn en un puerto local privado y abre una ventana
   PyWebView en lugar de exponer el servidor en `0.0.0.0:8000`.
