@@ -148,25 +148,35 @@ reemplazo) y `VR_UPDATE_REPO` (apunta a otro repositorio).
 ## Publicar una versión
 
 ```powershell
-# 1. Subir la versión en version.txt e installer.iss (deben coincidir)
-# 2. Paquete liviano para el auto-update (segundos)
-.\scripts\build_app_package.ps1
-# 3. Instalador completo (~9 minutos)
-& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer.iss
-# 4. Release con los tres artefactos
-gh release create v<versión> `
-    dist_installer\VocalRemover-Setup-<versión>.exe `
-    dist_installer\VocalRemover-app-<versión>.zip `
-    dist_installer\VocalRemover-app-<versión>.zip.sha256 --latest
+.\scripts\publish.ps1 -Version 1.0.9
+.\scripts\publish.ps1 -Version 1.0.9 -DryRun    # solo valida, no toca nada
 ```
 
-**No edites los fuentes mientras compila el instalador.** Inno lee los archivos
-a medida que comprime, así que un cambio a mitad de build produce un instalador
-del que no se sabe qué versión del código contiene.
+Hace todo: actualiza la versión en `version.txt` e `installer.iss`, commitea y
+pushea, construye el paquete liviano y el instalador, publica el release con
+los tres artefactos y verifica contra la API que quedó completo y descargable.
+Tarda unos 10 minutos, casi todo compilando el instalador.
+
+Antes de tocar nada exige que **el árbol de git esté limpio**, y commitea la
+versión **antes** de compilar. No es burocracia: Inno lee los fuentes a medida
+que comprime, así que editar algo a mitad de build produce un instalador del
+que no se sabe qué versión del código contiene. Ya pasó una vez y hubo que
+descartarlo.
+
+Las notas salen de `scripts/release-notes-template.md`, sustituyendo
+`{{VERSION}}`. La explicación de SmartScreen es lo primero que lee quien
+instala y no debería depender de que alguien la reescriba cada vez.
 
 Un release **tiene que llevar los tres artefactos**: sin el `.zip` las
 instalaciones existentes no pueden actualizarse solas, y sin el `.exe` quien
-entre al repositorio a descargar la app no encuentra instalador.
+entra a la landing no encuentra qué descargar. Los dos casos fallan en
+silencio, porque el release se ve publicado igual. Por eso además del script
+hay un workflow (`.github/workflows/verificar-release.yml`) que lo comprueba
+desde afuera cada vez que se publica uno, junto con que la landing responda.
+
+**La landing no hay que actualizarla nunca.** No tiene ninguna versión escrita:
+resuelve la descarga contra la API en cada visita, y GitHub Pages redespliega
+solo al pushear cambios en `docs/`.
 
 ## Roadmap
 
