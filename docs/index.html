@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vocal Remover — Quitá la voz de cualquier canción de YouTube</title>
+<meta name="description" content="Aplicación para Windows que separa la voz de la música y te devuelve la pista instrumental. Corre entera en tu PC.">
+<link rel="icon" href="logo.png">
+<style>
+:root {
+  --bg:           #0c0c10;
+  --surface:      #16161f;
+  --surface2:     #1e1e2a;
+  --border:       #2a2a3a;
+  --accent:       #7c3aed;
+  --accent-light: #9d5cf6;
+  --accent-glow:  rgba(124,58,237,0.35);
+  --text:         #e8e8f0;
+  --text-dim:     #7a7a96;
+  --warning:      #f59e0b;
+  --radius:       14px;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.6;
+  /* Resplandor sutil detrás del encabezado, mismo acento que la app */
+  background-image: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(124,58,237,0.18), transparent);
+}
+.wrap { max-width: 46rem; margin: 0 auto; padding: 4rem 1.25rem 5rem; }
+
+header { text-align: center; margin-bottom: 3rem; }
+header img { width: 84px; height: 84px; object-fit: contain; }
+h1 {
+  font-size: clamp(2.1rem, 6vw, 3rem);
+  margin: 1rem 0 0.5rem;
+  letter-spacing: -0.02em;
+}
+.tagline { color: var(--text-dim); font-size: 1.12rem; margin: 0 auto; max-width: 34rem; }
+
+/* ── Descarga ── */
+.download-box { text-align: center; margin: 2.5rem 0 1rem; }
+a.download {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+  font-size: 1.12rem;
+  font-weight: 600;
+  padding: 1rem 2.4rem;
+  border-radius: 10px;
+  box-shadow: 0 6px 28px var(--accent-glow);
+  transition: background 0.2s, transform 0.1s;
+}
+a.download:hover { background: var(--accent-light); }
+a.download:active { transform: scale(0.98); }
+.meta { color: var(--text-dim); font-size: 0.88rem; margin-top: 0.85rem; min-height: 1.4em; }
+
+/* ── Bloques ── */
+section { margin-top: 3rem; }
+h2 { font-size: 1.3rem; margin-bottom: 0.6rem; letter-spacing: -0.01em; }
+h2 .num {
+  color: var(--accent-light);
+  font-variant-numeric: tabular-nums;
+  margin-right: 0.5rem;
+}
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.4rem 1.6rem;
+}
+.warn {
+  background: rgba(245,158,11,0.07);
+  border-color: rgba(245,158,11,0.35);
+}
+.warn strong { color: var(--warning); }
+kbd {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.1rem 0.45rem;
+  font-size: 0.9em;
+  font-family: inherit;
+  white-space: nowrap;
+}
+ul { padding-left: 1.15rem; margin: 0.5rem 0 0; }
+li { margin-bottom: 0.4rem; }
+li:last-child { margin-bottom: 0; }
+p:last-child { margin-bottom: 0; }
+
+.steps { display: grid; gap: 1rem; }
+
+footer {
+  margin-top: 4rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+footer a { color: var(--text-dim); }
+footer a:hover { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <img src="logo.png" alt="">
+    <h1>Vocal Remover</h1>
+    <p class="tagline">
+      Quitá la voz de cualquier canción de YouTube y quedate con la pista
+      instrumental, lista para karaoke.
+    </p>
+
+    <div class="download-box">
+      <!-- Sin JavaScript esto lleva a la página del último release, que siempre
+           existe. El script de abajo lo mejora apuntando al .exe directo. -->
+      <a class="download" id="download"
+         href="https://github.com/alexanderrr1/vocal-remover-desktop/releases/latest">
+        Descargar para Windows
+      </a>
+      <div class="meta" id="meta">Gratis · Windows 10 y 11</div>
+    </div>
+  </header>
+
+  <section>
+    <h2>Corre entera en tu PC</h2>
+    <div class="card">
+      <p>
+        No sube tu música a ningún servidor ni necesita cuenta. Todo el
+        procesamiento pasa en tu computadora, así que funciona igual de bien con
+        una canción que con cien.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Windows va a mostrarte una advertencia</h2>
+    <div class="card warn">
+      <p>
+        Al abrir el instalador aparece una pantalla azul que dice que
+        <strong>Windows protegió tu PC</strong>. Hacé clic en
+        <kbd>Más información</kbd> y después en <kbd>Ejecutar de todas formas</kbd>.
+      </p>
+      <p style="margin-top:0.9rem">
+        Aparece porque el instalador no está firmado con un certificado digital,
+        que cuesta cientos de dólares por año. No significa que el programa sea
+        peligroso: significa que Microsoft no conoce al autor. Todo el código es
+        público y podés revisarlo.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cómo se usa</h2>
+    <div class="steps">
+      <div class="card">
+        <h2 style="font-size:1.05rem;margin:0"><span class="num">1</span>Instalás y esperás una vez</h2>
+        <p style="margin-top:0.5rem">
+          Durante la instalación se descargan unos 640 MB del modelo de
+          inteligencia artificial, con barra de progreso. Es la única espera y
+          no se repite. No necesitás instalar nada más.
+        </p>
+      </div>
+      <div class="card">
+        <h2 style="font-size:1.05rem;margin:0"><span class="num">2</span>Pegás el link y procesás</h2>
+        <p style="margin-top:0.5rem">
+          Pegá la dirección del video de YouTube y dale Procesar. Podés además
+          cambiar la tonalidad hasta 12 semitonos y la velocidad entre 0,5x y
+          2x, útil para practicar.
+        </p>
+      </div>
+      <div class="card">
+        <h2 style="font-size:1.05rem;margin:0"><span class="num">3</span>Guardás el instrumental</h2>
+        <p style="margin-top:0.5rem">
+          Al terminar, elegís dónde guardar el MP3. El archivo toma el nombre
+          del video, así que no tenés que renombrarlo.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Se actualiza sola</h2>
+    <div class="card">
+      <p>
+        Cuando haya una versión nueva, la aplicación te avisa dentro de la
+        ventana y la instalás con un clic. Descarga solo lo que cambió —unos
+        17 MB— en vez del instalador completo, y se reinicia sola.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Qué necesitás</h2>
+    <div class="card">
+      <ul>
+        <li>Windows 10 u 11, de 64 bits</li>
+        <li>Unos 3 GB de espacio libre</li>
+        <li>Conexión a internet, para bajar el modelo la primera vez y los videos después</li>
+      </ul>
+      <p style="margin-top:0.9rem;color:var(--text-dim);font-size:0.92rem">
+        Se instala solo para tu usuario y no pide permisos de administrador.
+        El procesamiento usa el procesador de tu PC y tarda unos minutos según
+        el largo del tema.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    Código abierto en
+    <a href="https://github.com/alexanderrr1/vocal-remover-desktop">GitHub</a>
+    · Separación de audio con
+    <a href="https://github.com/adefossez/demucs">Demucs</a>
+  </footer>
+
+</div>
+
+<script>
+// Apunta el botón al instalador del último release y muestra versión y peso.
+// Si esto falla —sin conexión, límite de la API, cambio de formato— el enlace
+// original a /releases/latest sigue siendo válido: nunca queda un botón roto.
+(async () => {
+  const API = 'https://api.github.com/repos/alexanderrr1/vocal-remover-desktop/releases/latest';
+  try {
+    const resp = await fetch(API);
+    if (!resp.ok) return;
+    const release = await resp.json();
+    const exe = (release.assets || []).find(a => a.name.toLowerCase().endsWith('.exe'));
+    if (!exe) return;
+
+    document.getElementById('download').href = exe.browser_download_url;
+    const mb = (exe.size / 1024 / 1024).toFixed(0);
+    document.getElementById('meta').textContent =
+      `Versión ${release.tag_name.replace(/^v/, '')} · ${mb} MB · Windows 10 y 11`;
+  } catch {
+    // Silencio deliberado: el enlace de respaldo ya funciona.
+  }
+})();
+</script>
+</body>
+</html>
