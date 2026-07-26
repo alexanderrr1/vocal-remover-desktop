@@ -1,0 +1,82 @@
+# Verifica que la cadena de distribución quede intacta después de publicar.
+#
+# La landing no necesita actualizarse —resuelve la descarga contra la API en
+# cada visita y GitHub Pages redespliega solo—, así que lo que puede olvidarse
+# no es actualizar algo, sino publicar un release incompleto. Ya pasó dos veces:
+# una versión quedó sin instalador y otra sin paquete liviano.
+#
+# Un release sin .zip deja a las instalaciones existentes sin poder
+# actualizarse solas. Sin .exe, quien entra a la landing no puede descargar
+# nada. Los dos fallan en silencio: el release se ve publicado igual.
+
+name: Verificar release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:        # para poder correrlo a mano cuando haga falta
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comprobar los artefactos del último release
+        run: |
+          set -euo pipefail
+          API="https://api.github.com/repos/${{ github.repository }}/releases/latest"
+          rel=$(curl -sSf -H "Accept: application/vnd.github+json" "$API")
+
+          tag=$(echo "$rel" | jq -r '.tag_name')
+          ver="${tag#v}"
+          echo "Último release: $tag"
+
+          faltan=""
+          for archivo in \
+            "VocalRemover-Setup-${ver}.exe" \
+            "VocalRemover-app-${ver}.zip" \
+            "VocalRemover-app-${ver}.zip.sha256"
+          do
+            if echo "$rel" | jq -e --arg n "$archivo" '.assets[] | select(.name == $n)' > /dev/null; then
+              echo "  OK      $archivo"
+            else
+              echo "  FALTA   $archivo"
+              faltan="$faltan $archivo"
+            fi
+          done
+
+          if [ -n "$faltan" ]; then
+            echo ""
+            echo "El release $tag está incompleto. Falta:$faltan"
+            echo "Subilos con: gh release upload $tag <archivo>"
+            exit 1
+          fi
+
+      - name: Comprobar que el instalador se descarga
+        run: |
+          set -euo pipefail
+          API="https://api.github.com/repos/${{ github.repository }}/releases/latest"
+          url=$(curl -sSf "$API" | jq -r '.assets[] | select(.name | endswith(".exe")) | .browser_download_url')
+
+          # Que el asset figure en la API no garantiza que se pueda bajar.
+          codigo=$(curl -sSL -o /dev/null -w '%{http_code}' --max-time 120 -r 0-1023 "$url")
+          echo "Descarga del instalador: HTTP $codigo"
+          [ "$codigo" = "200" ] || [ "$codigo" = "206" ] || exit 1
+
+      - name: Comprobar que la landing responde y resuelve la descarga
+        run: |
+          set -euo pipefail
+          PAGE="https://alexanderrr1.github.io/vocal-remover-desktop/"
+
+          codigo=$(curl -sSL -o /tmp/landing.html -w '%{http_code}' --max-time 60 "$PAGE")
+          echo "Landing: HTTP $codigo"
+          [ "$codigo" = "200" ] || exit 1
+
+          # El enlace de respaldo tiene que seguir estando: es lo que hace que
+          # el botón funcione aunque el script falle o la API esté limitada.
+          grep -q "releases/latest" /tmp/landing.html \
+            && echo "  OK      enlace de respaldo a /releases/latest presente" \
+            || { echo "  FALTA   el enlace de respaldo; el botón dependería solo del script"; exit 1; }
+
+          grep -q "Descargar para Windows" /tmp/landing.html \
+            && echo "  OK      botón de descarga presente" \
+            || { echo "  FALTA   el botón de descarga"; exit 1; }
