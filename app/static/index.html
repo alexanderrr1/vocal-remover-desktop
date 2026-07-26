@@ -133,6 +133,15 @@ input[type=url]::placeholder { color: var(--text-dim); }
   align-items: center;
   margin-bottom: 0.75rem;
 }
+/* Aclaración bajo el selector de calidad: en minúscula y tenue, para que se
+   lea como ayuda y no compita con las etiquetas de los campos. */
+.select-hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
 .panel-header .field-label { margin-bottom: 0; }
 .panel-value {
   font-size: 0.85rem;
@@ -379,12 +388,14 @@ footer {
     </div>
   </div>
 
-  <label class="field-label" for="model-select">Modelo de IA</label>
+  <label class="field-label" for="model-select">Calidad del resultado</label>
   <select id="model-select">
-    <option value="mdx_extra" selected>mdx_extra — Rápido (recomendado para CPU)</option>
-    <option value="htdemucs">htdemucs — Alta calidad (más lento en CPU)</option>
-    <option value="htdemucs_ft">htdemucs_ft — Máxima calidad (muy lento en CPU)</option>
+    <option value="mdx_extra" selected>Rápido · buena calidad (recomendado)</option>
+    <option value="htdemucs">Alta calidad</option>
+    <option value="htdemucs_ft">Máxima calidad · el más lento</option>
   </select>
+  <p class="select-hint">Más calidad tarda más. La primera vez que elegís una
+  opción se descarga su modelo.</p>
 
   <label class="field-label" for="url-input">URL de YouTube</label>
   <input type="url" id="url-input"
