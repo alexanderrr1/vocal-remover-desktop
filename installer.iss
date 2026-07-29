@@ -9,7 +9,7 @@
 ;   & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer.iss
 
 #define AppName "Vocal Remover"
-#define AppVersion "1.0.9"
+#define AppVersion "1.0.10"
 
 ; Pesos del modelo Demucs por defecto (mdx_extra). Se descargan durante la
 ; instalación en vez de la primera ejecución: la espera ocurre donde el usuario
