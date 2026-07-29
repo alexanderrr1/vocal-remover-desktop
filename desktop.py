@@ -106,6 +106,7 @@ if os.environ.get("VR_UPDATE_APPLIED") != "1" and apply_staged_update():
 import uvicorn  # noqa: E402
 import webview  # noqa: E402
 from app.main import app  # noqa: E402
+from app.job_store import DEFAULT_KIND  # noqa: E402
 
 HOST = "127.0.0.1"
 PORT = find_free_port()
@@ -171,18 +172,19 @@ class Api:
     — PyWebView inspecciona recursivamente el objeto js_api y romper al tocar el
     DOM. La ventana se obtiene en el momento con webview.active_window()."""
 
-    def save_result(self, job_id: str) -> dict:
-        from app.job_store import jobs, JobStatus
+    def save_result(self, job_id: str, kind: str = DEFAULT_KIND) -> dict:
+        """Guarda una de las dos salidas del trabajo: la pista sin voz o la original."""
+        from app.job_store import jobs, JobStatus, resolve_output
 
         job = jobs.get(job_id)
         if not job or job.get("status") != JobStatus.DONE:
             return {"ok": False, "error": "El resultado todavía no está listo."}
 
-        src = job.get("output_path")
-        if not src or not Path(src).exists():
-            return {"ok": False, "error": "No se encontró el archivo de salida."}
+        try:
+            src, filename = resolve_output(job, kind)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
 
-        title = job.get("title") or "instrumental"
         downloads = Path.home() / "Downloads"
         directory = str(downloads if downloads.exists() else Path.home())
 
@@ -190,7 +192,7 @@ class Api:
         result = window.create_file_dialog(
             webview.SAVE_DIALOG,
             directory=directory,
-            save_filename=f"{title}.mp3",
+            save_filename=filename,
             file_types=("Audio MP3 (*.mp3)", "Todos los archivos (*.*)"),
         )
         if not result:

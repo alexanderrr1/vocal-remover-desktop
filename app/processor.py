@@ -127,6 +127,39 @@ def _set(jobs: Dict[str, Any], job_id: str, status: str, progress: int, message:
     jobs[job_id]["message"] = message
 
 
+def _audio_filters(semitones: int, tempo: float) -> list:
+    """Cadena de filtros de ffmpeg para tonalidad y velocidad (vacía si no hay).
+
+    Se aplican por igual a las dos pistas: si el usuario baja tres semitonos
+    para poder cantarla, la original tiene que quedar en esa misma tonalidad
+    para servirle de referencia."""
+    filters = []
+    if semitones != 0:
+        pitch_ratio = 2 ** (semitones / 12)
+        # asetrate shifts pitch; atempo corrects the tempo back to 1x
+        filters += [f"asetrate=44100*{pitch_ratio}", "aresample=44100", f"atempo={1/pitch_ratio}"]
+    if tempo != 1.0:
+        filters.append(f"atempo={tempo}")
+    return filters
+
+
+def _encode_mp3(src: Path, dest: Path, filters: list) -> None:
+    cmd = [FFMPEG, "-y", "-i", str(src)]
+    if filters:
+        cmd += ["-af", ",".join(filters)]
+    cmd += ["-codec:a", "libmp3lame", "-b:a", "320k", str(dest)]
+
+    proc = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        creationflags=NO_WINDOW,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg (MP3 {dest.name}) falló: {proc.stderr[:400]}")
+
+
 def run_pipeline(job_id: str, url: str, model: str, jobs: Dict[str, Any], semitones: int = 0, tempo: float = 1.0) -> None:
     """
     Full processing pipeline (runs in a ThreadPoolExecutor thread).
@@ -135,7 +168,9 @@ def run_pipeline(job_id: str, url: str, model: str, jobs: Dict[str, Any], semito
       1. yt-dlp   — download best audio from YouTube
       2. ffmpeg   — convert to stereo 44100Hz WAV (Demucs input format)
       3. demucs   — separate vocals / no_vocals with --two-stems vocals + CUDA
-      4. ffmpeg   — encode no_vocals.wav → instrumental.mp3 at 320kbps
+      4. ffmpeg   — encode both outputs at 320kbps:
+                    no_vocals.wav → instrumental.mp3  (karaoke)
+                    audio.wav     → original.mp3      (tema completo)
                     (optional: pitch shift via asetrate+aresample+atempo, tempo via atempo)
     """
     if model not in ALLOWED_MODELS:
@@ -148,6 +183,7 @@ def run_pipeline(job_id: str, url: str, model: str, jobs: Dict[str, Any], semito
     converted_wav = job_dir / "audio.wav"
     demucs_out_dir = job_dir / "separated"
     output_mp3 = job_dir / "instrumental.mp3"
+    original_mp3 = job_dir / "original.mp3"
     runtime = get_runtime_info()
     demucs_device = str(runtime["selected_device"])
 
@@ -187,7 +223,7 @@ def run_pipeline(job_id: str, url: str, model: str, jobs: Dict[str, Any], semito
             raw_title = title_file.read_text(encoding="utf-8").strip()
         except Exception:
             raw_title = ""
-        jobs[job_id]["title"] = _safe_filename(raw_title) or "instrumental"
+        jobs[job_id]["title"] = _safe_filename(raw_title) or "audio"
         title_file.unlink(missing_ok=True)
 
         # ── Stage 2: Convert to WAV ──────────────────────────────────────────
@@ -269,37 +305,23 @@ def run_pipeline(job_id: str, url: str, model: str, jobs: Dict[str, Any], semito
                 raise RuntimeError("Demucs terminó pero no se encontró no_vocals.wav")
             no_vocals = matches[0]
 
-        # ── Stage 4: Encode to MP3 ───────────────────────────────────────────
-        import math
+        # ── Stage 4: Encode both MP3s ────────────────────────────────────────
         labels = []
         if semitones != 0:
             labels.append(f"{semitones:+d} st")
         if tempo != 1.0:
             labels.append(f"{tempo:.2f}x")
         extra = f" ({', '.join(labels)})" if labels else ""
-        _set(jobs, job_id, JobStatus.ENCODING, 90, f"Codificando MP3 320kbps{extra}...")
+        filters = _audio_filters(semitones, tempo)
 
-        ff_enc_cmd = [FFMPEG, "-y", "-i", str(no_vocals)]
-        filters = []
-        if semitones != 0:
-            pitch_ratio = 2 ** (semitones / 12)
-            # asetrate shifts pitch; atempo corrects the tempo back to 1x
-            filters += [f"asetrate=44100*{pitch_ratio}", "aresample=44100", f"atempo={1/pitch_ratio}"]
-        if tempo != 1.0:
-            filters.append(f"atempo={tempo}")
-        if filters:
-            ff_enc_cmd += ["-af", ",".join(filters)]
-        ff_enc_cmd += ["-codec:a", "libmp3lame", "-b:a", "320k", str(output_mp3)]
+        _set(jobs, job_id, JobStatus.ENCODING, 90, f"Codificando la pista sin voz{extra}...")
+        _encode_mp3(no_vocals, output_mp3, filters)
 
-        ff_enc = subprocess.run(
-            ff_enc_cmd,
-            capture_output=True,
-            text=True,
-            timeout=120,
-            creationflags=NO_WINDOW,
-        )
-        if ff_enc.returncode != 0:
-            raise RuntimeError(f"ffmpeg (MP3) falló: {ff_enc.stderr[:400]}")
+        # La original sale del WAV que entró a Demucs, no del audio descargado:
+        # es el mismo material que la pista sin voz, así que las dos quedan
+        # alineadas y con la misma tonalidad y velocidad.
+        _set(jobs, job_id, JobStatus.ENCODING, 96, f"Codificando el tema original{extra}...")
+        _encode_mp3(converted_wav, original_mp3, filters)
 
         # Clean up intermediate WAVs to free disk space
         converted_wav.unlink(missing_ok=True)
@@ -310,8 +332,13 @@ def run_pipeline(job_id: str, url: str, model: str, jobs: Dict[str, Any], semito
         except Exception:
             pass
 
-        jobs[job_id]["output_path"] = str(output_mp3)
-        _set(jobs, job_id, JobStatus.DONE, 100, "¡Listo! La pista instrumental está lista.")
+        # Las claves son las de OUTPUT_KINDS (job_store.py).
+        jobs[job_id]["outputs"] = {
+            "instrumental": str(output_mp3),
+            "original": str(original_mp3),
+        }
+        _set(jobs, job_id, JobStatus.DONE, 100,
+             "¡Listo! Ya podés descargar la pista sin voz o el tema original.")
 
     except Exception as exc:
         jobs[job_id]["status"] = JobStatus.FAILED

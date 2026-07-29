@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import updater
-from .job_store import JobStatus, jobs
+from .job_store import DEFAULT_KIND, JobStatus, jobs, resolve_output
 from .processor import ALLOWED_MODELS, DEFAULT_MODEL, get_runtime_info, run_pipeline
 
 # Single-worker executor: prevents two Demucs jobs competing for the same GPU
@@ -163,7 +163,7 @@ async def process(payload: Dict[str, Any]) -> Dict[str, str]:
         "status": JobStatus.QUEUED,
         "progress": 0,
         "message": "En cola...",
-        "output_path": None,
+        "outputs": {},
         "title": None,
         "error": None,
     }
@@ -209,8 +209,10 @@ async def ws_progress(websocket: WebSocket, job_id: str) -> None:
 
 
 @app.get("/download/{job_id}")
-async def download(job_id: str) -> FileResponse:
-    """Download the processed instrumental MP3."""
+async def download(job_id: str, kind: str = DEFAULT_KIND) -> FileResponse:
+    """Download one of the job's MP3s: `kind=instrumental` (default) or `original`.
+
+    El default mantiene andando la URL sin parámetro."""
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job no encontrado")
 
@@ -218,17 +220,15 @@ async def download(job_id: str) -> FileResponse:
     if job["status"] != JobStatus.DONE:
         raise HTTPException(status_code=409, detail="El job no ha terminado aún")
 
-    path = job.get("output_path")
-    if not path or not Path(path).exists():
-        raise HTTPException(status_code=404, detail="Archivo de salida no encontrado")
-
-    # Name the download after the YouTube video title (falls back to a default).
-    # Starlette encodes non-ASCII filenames correctly (RFC 5987) via the filename param.
-    title = job.get("title") or "instrumental"
-    filename = f"{title}.mp3"
+    try:
+        # El nombre sale del título del video; Starlette codifica los caracteres
+        # no ASCII correctamente (RFC 5987) vía el parámetro filename.
+        path, filename = resolve_output(job, kind)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
 
     return FileResponse(
-        path,
+        str(path),
         media_type="audio/mpeg",
         filename=filename,
     )

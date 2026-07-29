@@ -100,6 +100,11 @@ select {
 }
 select:focus { border-color: var(--accent); }
 
+/* La aclaración de abajo se hace cargo de la separación con el campo siguiente;
+   si el select también la pusiera, el texto quedaría flotando entre los dos y
+   pegado al que no le corresponde. */
+select.with-hint { margin-bottom: 0; }
+
 /* ── URL input ── */
 input[type=url] {
   width: 100%;
@@ -136,7 +141,7 @@ input[type=url]::placeholder { color: var(--text-dim); }
 /* Aclaración bajo el selector de calidad: en minúscula y tenue, para que se
    lea como ayuda y no compita con las etiquetas de los campos. */
 .select-hint {
-  margin: 0.4rem 0 0;
+  margin: 0.4rem 0 1.25rem;
   font-size: 0.78rem;
   line-height: 1.45;
   color: var(--text-dim);
@@ -241,24 +246,58 @@ button.primary:disabled { opacity: 0.4; cursor: not-allowed; }
   box-shadow: 0 0 8px var(--accent-glow);
 }
 
-/* ── Download button ── */
-button.download {
+/* ── Download buttons ── */
+/* Dos salidas del mismo trabajo. La pista sin voz es lo que vino a buscar el
+   usuario, así que va en verde lleno; la original al lado en versión delineada,
+   disponible sin competir por la atención. */
+.download-row {
   display: none;
-  width: 100%;
+  gap: 0.65rem;
+}
+.download-row.visible { display: flex; }
+
+button.download {
+  flex: 1 1 0;
+  min-width: 0;
   background: var(--success);
   color: #fff;
-  border: none;
+  border: 1px solid var(--success);
   border-radius: 8px;
-  padding: 0.9rem 1rem;
-  font-size: 1rem;
+  padding: 0.75rem 0.9rem;
+  font-size: 0.95rem;
   font-weight: 600;
+  line-height: 1.25;
   cursor: pointer;
-  transition: background 0.2s, transform 0.1s;
+  transition: background 0.2s, transform 0.1s, border-color 0.2s;
   box-shadow: 0 4px 16px rgba(16,185,129,0.3);
 }
-button.download:hover { background: #059669; }
+button.download:hover { background: #059669; border-color: #059669; }
 button.download:active { transform: scale(0.98); }
-button.download.visible { display: block; }
+
+button.download.alt {
+  background: transparent;
+  color: var(--success);
+  border-color: rgba(16,185,129,0.45);
+  box-shadow: none;
+}
+button.download.alt:hover {
+  background: rgba(16,185,129,0.1);
+  border-color: var(--success);
+}
+
+/* Aclaración de qué trae cada archivo, dentro del propio botón. */
+button.download .what {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0.75;
+  margin-top: 0.12rem;
+}
+
+/* Pantallas angostas: uno abajo del otro antes de que el texto se apriete. */
+@media (max-width: 420px) {
+  .download-row.visible { flex-direction: column; }
+}
 
 /* ── Error box ── */
 .error-box {
@@ -371,7 +410,7 @@ footer {
     <div class="icon"><img src="/static/logo.png" alt="Vocal Remover"></div>
     <h1>Vocal Remover</h1>
   </div>
-  <p class="subtitle">Pega una URL de YouTube y obtén la pista instrumental lista para karaoke</p>
+  <p class="subtitle">Pegá una URL de YouTube y descargá la pista sin voz para cantar encima, o el tema original</p>
   <p class="runtime-note" id="runtime-note">Detectando aceleración disponible...</p>
 
   <div class="model-banner" id="model-banner">
@@ -389,7 +428,7 @@ footer {
   </div>
 
   <label class="field-label" for="model-select">Calidad del resultado</label>
-  <select id="model-select">
+  <select id="model-select" class="with-hint">
     <option value="mdx_extra" selected>Rápido · buena calidad (recomendado)</option>
     <option value="htdemucs">Alta calidad</option>
     <option value="htdemucs_ft">Máxima calidad · el más lento</option>
@@ -447,9 +486,16 @@ footer {
     </div>
   </div>
 
-  <button class="download" id="download-btn" onclick="downloadResult()">
-    Descargar Instrumental (MP3)
-  </button>
+  <div class="download-row" id="download-row">
+    <button class="download" onclick="downloadResult('instrumental')">
+      Descargar karaoke
+      <span class="what">sin voz · MP3</span>
+    </button>
+    <button class="download alt" onclick="downloadResult('original')">
+      Descargar original
+      <span class="what">con voz · MP3</span>
+    </button>
+  </div>
 
   <div class="error-box" id="error-box"></div>
 </div>
@@ -490,11 +536,11 @@ function showError(msg) {
 function setUI(state) {
   const submitBtn = document.getElementById('submit-btn');
   const progressSec = document.getElementById('progress-section');
-  const downloadBtn = document.getElementById('download-btn');
+  const downloads = document.getElementById('download-row');
 
   submitBtn.disabled = (state === 'processing');
   progressSec.classList.toggle('visible', state === 'processing' || state === 'done');
-  downloadBtn.classList.toggle('visible', state === 'done');
+  downloads.classList.toggle('visible', state === 'done');
 }
 
 async function submitJob() {
@@ -502,7 +548,7 @@ async function submitJob() {
   if (!url) { document.getElementById('url-input').focus(); return; }
 
   document.getElementById('error-box').classList.remove('visible');
-  document.getElementById('download-btn').classList.remove('visible');
+  document.getElementById('download-row').classList.remove('visible');
   currentJobId = null;
   if (ws) { ws.close(); ws = null; }
 
@@ -544,7 +590,7 @@ function openWebSocket(jobId) {
     setProgress(msg.progress ?? 0, msg.message ?? msg.status);
     if (msg.status === 'done') {
       setUI('done');
-      setProgress(100, '¡Listo! La pista instrumental está lista para descargar.');
+      setProgress(100, '¡Listo! Elegí qué archivo querés guardar.');
     } else if (msg.status === 'failed') {
       showError(msg.message || 'El procesamiento falló');
       setUI('idle');
@@ -555,13 +601,16 @@ function openWebSocket(jobId) {
   ws.onclose = () => { ws = null; };
 }
 
-async function downloadResult() {
+// kind: 'instrumental' (la pista sin voz) u 'original' (el tema completo).
+// Las dos salen del mismo trabajo ya procesado, así que descargar la segunda
+// es instantáneo: no hay que volver a separar nada.
+async function downloadResult(kind) {
   if (!currentJobId) return;
 
   // App de escritorio: diálogo nativo "Guardar como" (WebView2 no descarga solo)
   if (window.pywebview?.api?.save_result) {
     try {
-      const res = await window.pywebview.api.save_result(currentJobId);
+      const res = await window.pywebview.api.save_result(currentJobId, kind);
       if (res?.ok) {
         setProgress(100, 'Guardado en: ' + res.path);
       } else if (!res?.cancelled) {
@@ -574,7 +623,7 @@ async function downloadResult() {
   }
 
   // Fallback: navegador web normal
-  window.location.href = `/download/${currentJobId}`;
+  window.location.href = `/download/${currentJobId}?kind=${encodeURIComponent(kind)}`;
 }
 
 async function loadRuntimeInfo() {

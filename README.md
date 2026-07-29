@@ -1,8 +1,8 @@
 # Vocal Remover
 
 Quita la voz de un video de YouTube y te devuelve la pista instrumental, lista
-para karaoke. Aplicación de escritorio para Windows: corre **entera en tu PC** y
-no sube nada a ningún servidor.
+para karaoke — y también el tema original, si lo querés. Aplicación de escritorio
+para Windows: corre **entera en tu PC** y no sube nada a ningún servidor.
 
 ## Descargar
 
@@ -31,12 +31,20 @@ solo para tu usuario y **no pide permisos de administrador**.
 
 ## Cómo se usa
 
-Pegá la URL del video, elegí el modelo y dale **Procesar**. Cuando termina,
-**Descargar Instrumental** abre el "Guardar como" de Windows y el archivo toma
-el nombre del video.
+Pegá la URL del video, elegí la calidad y dale **Procesar**. Cuando termina
+podés guardar dos archivos:
+
+- **Descargar karaoke** — el tema sin la voz, para cantar encima.
+- **Descargar original** — el tema completo, tal como suena.
+
+Cualquiera de los dos abre el "Guardar como" de Windows, y el archivo toma el
+nombre del video más el sufijo que corresponda. Bajar el segundo es inmediato:
+los dos salen del mismo procesamiento, no hay que volver a esperar.
 
 Podés además cambiar la **tonalidad** hasta 12 semitonos y la **velocidad**
-entre 0,5x y 2x, útil para practicar.
+entre 0,5x y 2x, útil para practicar. Los cambios se aplican a los dos
+archivos, así que la original te sirve de referencia en la misma tonalidad en
+la que vas a cantar.
 
 El procesamiento usa el procesador de tu PC y tarda unos minutos según el largo
 del tema y la máquina.
@@ -65,8 +73,20 @@ Internamente usa el mismo backend FastAPI + Demucs que la versión web
 (`../02_Vocal_Remover`), pero sin Docker y sin navegador.
 
 ```
-YouTube URL → yt-dlp → ffmpeg (WAV) → Demucs → ffmpeg (MP3) → descarga
+                                            ┌→ no_vocals → ffmpeg → karaoke.mp3
+YouTube URL → yt-dlp → ffmpeg (WAV) → Demucs ┤
+                                            └→ el WAV     → ffmpeg → original.mp3
 ```
+
+Las dos salidas se generan en el mismo trabajo. Separar la voz es lo que tarda
+minutos; una vez hecho, codificar además la original cuesta segundos, así que no
+tiene sentido hacer elegir de antemano ni procesar dos veces. La original sale
+del WAV que entró a Demucs —no del audio descargado— para que las dos pistas
+queden alineadas, y comparte la cadena de filtros de tonalidad y velocidad.
+
+Las claves de las salidas (`instrumental`, `original`) y el sufijo del archivo
+que ve el usuario viven en `OUTPUT_KINDS`, en `app/job_store.py`: las usan la
+interfaz, el endpoint `/download` y el guardado nativo de `desktop.py`.
 
 ## Requisitos de desarrollo
 
