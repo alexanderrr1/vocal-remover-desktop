@@ -49,6 +49,15 @@ la que vas a cantar.
 El procesamiento usa el procesador de tu PC y tarda unos minutos según el largo
 del tema y la máquina.
 
+## Si un video no se puede descargar
+
+De vez en cuando YouTube pide una **verificación antibot** y la descarga falla.
+No es un problema de tu PC ni de la aplicación: pasa cuando YouTube desconfía de
+la conexión desde la que se pide el video.
+
+Probá de nuevo en unos minutos, o con otro video. Si estás usando una VPN,
+desactivala y reintentá.
+
 ## Se actualiza sola
 
 Cuando haya una versión nueva, la aplicación te avisa dentro de la ventana y la
@@ -137,6 +146,44 @@ descarga durante la instalación, con barra de progreso. Es una tarea desmarcabl
 —para instalar sin conexión—, se omite si ya están en la caché, y si falla no
 aborta la instalación: la app los baja sola en la primera ejecución.
 
+## YouTube y el control antibot
+
+YouTube responde a veces con *"Sign in to confirm you're not a bot"*. No es un
+fallo de la app: YouTube desafía los pedidos que le parecen automatizados, y la
+decisión depende de **la IP y del cliente de su API** que se use, no del video.
+Un usuario lo recibió con la 1.0.10.
+
+Tres medidas, ninguna de las cuales lo elimina del todo:
+
+- **Varios clientes por pedido** (`YOUTUBE_CLIENTS` en `processor.py`, hoy
+  `android_vr,web_embedded,mweb`). Antes se pedía uno solo: si ese quedaba
+  desafiado, no había plan B. Está verificado que un cliente bloqueado deja de
+  ser fatal cuando se piden varios — `ios,android_vr` funciona aunque `ios`
+  solo falle. Cuesta unos 2 s más de extracción, sobre trabajos de minutos.
+- **yt-dlp se actualiza solo** al arrancar, en segundo plano
+  (`update_ytdlp_in_background`). YouTube rompe la extracción cada pocas semanas
+  y yt-dlp la arregla en días; sin esto, esos arreglos no llegan hasta que
+  publiquemos una versión. Funciona sin permisos de administrador porque la
+  instalación es por usuario. Se desactiva con `VR_NO_YTDLP_UPDATE=1`.
+- **El error se explica en castellano.** El texto de yt-dlp son cuatro líneas
+  que terminan en dos URLs de una wiki sobre exportar cookies del navegador: a
+  un usuario no técnico no le dice qué hacer y suena a que rompió algo.
+
+Dos detalles que no son evidentes:
+
+`update_ytdlp` **se abstiene si yt-dlp no es la copia empaquetada** (`VR_BIN_DIR`).
+Si viene del PATH puede ser una instalación de pipx, winget o scoop, y
+actualizarla sería meter mano en algo que no es nuestro.
+
+En Windows no se puede sobrescribir un `.exe` en ejecución, así que `yt-dlp -U`
+lo renombra para reemplazarlo. Si eso cayera justo cuando el pipeline lo lanza,
+la descarga fallaría por un motivo ajeno al video; el pipeline espera el evento
+`_ytdlp_disponible` antes de usarlo.
+
+**No se usan cookies del navegador**, aunque yt-dlp lo sugiera en el propio
+error: implica leer los tokens de sesión del usuario y ligar las descargas a su
+cuenta de YouTube, con riesgo real de que la marquen.
+
 ## Auto-update
 
 Al arrancar, la app consulta el último release de GitHub y compara con
@@ -203,7 +250,7 @@ solo al pushear cambios en `docs/`.
 - [x] Fase 1 — App de escritorio (ventana nativa)
 - [x] Fase 2 — Empaquetado con instalador (Inno Setup)
 - [x] Fase 3 — Auto-update vía GitHub Releases
-- [ ] Fase 4 — Página de descarga en GitHub Pages
+- [x] Fase 4 — Página de descarga en GitHub Pages
 
 Las Fases 2 y 3 se validaron en una VM con Windows 11 limpio, sin Python ni
 ffmpeg. Esa prueba destapó seis defectos que no se manifestaban en la máquina de

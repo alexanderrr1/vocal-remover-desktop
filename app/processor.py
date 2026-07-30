@@ -42,11 +42,113 @@ def _resolve_binary(name: str, env_var: str) -> str:
 FFMPEG = _resolve_binary("ffmpeg", "FFMPEG_BINARY")
 YTDLP = _resolve_binary("yt-dlp", "YTDLP_BINARY")
 
+# Clientes de la API de YouTube que yt-dlp consulta, en una sola invocación.
+#
+# YouTube desafía con "Sign in to confirm you're not a bot" según la IP y el
+# cliente usado, no según el video. Pidiendo varios, un cliente desafiado deja
+# de ser fatal: los demás siguen aportando formatos y la descarga sale igual.
+# Con uno solo —como estaba— no había plan B y el usuario veía el error crudo.
+#
+# Los tres están verificados y son deliberadamente distintos entre sí (app de
+# VR, web embebida, web móvil), para que un bloqueo no los alcance a la vez.
+YOUTUBE_CLIENTS = os.environ.get("VR_YT_CLIENTS", "android_vr,web_embedded,mweb")
+
 # La app corre bajo pythonw.exe, que no tiene consola. Cuando un proceso sin
 # consola lanza un ejecutable de consola (ffmpeg, yt-dlp), Windows le crea una
 # ventana negra propia que aparece y desaparece sola en medio del procesamiento.
 # CREATE_NO_WINDOW la suprime. En otras plataformas no aplica.
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
+
+
+# ── Mantener yt-dlp al día ──────────────────────────────────────────────────
+#
+# YouTube cambia su extracción cada pocas semanas y yt-dlp la arregla en días.
+# Sin esto, esos arreglos no le llegan al usuario hasta que publiquemos una
+# versión de la app, y mientras tanto el error antibot le vuelve a aparecer.
+#
+# Se puede desactivar con VR_NO_YTDLP_UPDATE=1.
+
+# En Windows no se puede sobrescribir un .exe en ejecución, así que yt-dlp -U
+# renombra el archivo para reemplazarlo. Si eso cae justo cuando el pipeline lo
+# está lanzando, la descarga falla por un motivo que no tiene nada que ver.
+# El pipeline espera este evento antes de usarlo.
+_ytdlp_disponible = threading.Event()
+_ytdlp_disponible.set()
+
+
+def _ytdlp_es_el_nuestro() -> bool:
+    """¿El yt-dlp que usamos es la copia que empaquetamos?
+
+    Si viene del PATH del sistema puede ser una instalación manejada por el
+    gestor de paquetes del usuario (pipx, winget, scoop): actualizarla por
+    nuestra cuenta sería meter mano en algo que no es nuestro."""
+    bin_dir = os.environ.get("VR_BIN_DIR")
+    if not bin_dir:
+        return False
+    try:
+        return Path(YTDLP).resolve().parent == Path(bin_dir).resolve()
+    except OSError:
+        return False
+
+
+def update_ytdlp() -> None:
+    """Actualiza yt-dlp in situ. No lanza excepciones ni bloquea nada crítico.
+
+    La instalación es por usuario en una carpeta escribible, así que `-U` no
+    necesita permisos de administrador."""
+    if os.environ.get("VR_NO_YTDLP_UPDATE") == "1":
+        return
+    if not _ytdlp_es_el_nuestro():
+        print("[yt-dlp] No es la copia empaquetada; se deja como está.")
+        _ytdlp_disponible.set()
+        return
+
+    try:
+        proc = subprocess.run(
+            [YTDLP, "-U"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            creationflags=NO_WINDOW,
+        )
+        salida = ((proc.stdout or "") + (proc.stderr or "")).strip()
+        ultima = salida.splitlines()[-1] if salida else "sin salida"
+        print(f"[yt-dlp] {ultima}")
+    except Exception as exc:
+        # Sin internet, GitHub caído o disco lleno. Nada de esto justifica
+        # molestar al usuario: la versión que ya está sigue funcionando.
+        print(f"[yt-dlp] No se pudo actualizar ({exc}); se sigue con la versión actual.")
+    finally:
+        _ytdlp_disponible.set()
+
+
+def update_ytdlp_in_background() -> threading.Thread:
+    _ytdlp_disponible.clear()          # antes de arrancar el hilo, no dentro
+    thread = threading.Thread(target=update_ytdlp, daemon=True, name="vr-ytdlp-update")
+    thread.start()
+    return thread
+
+
+# ── Errores de yt-dlp en lenguaje de usuario ────────────────────────────────
+
+_YT_ANTIBOT = re.compile(r"sign in to confirm|not a bot", re.I)
+
+
+def _explicar_fallo_ytdlp(stderr: str) -> str:
+    """Traduce el fallo de yt-dlp a algo que le sirva a quien lo lee.
+
+    El texto crudo de yt-dlp para el antibot son cuatro líneas terminadas en dos
+    URLs de una wiki sobre cómo exportar cookies del navegador. A un usuario no
+    técnico no le dice qué hacer, y encima suena a que rompió algo."""
+    if _YT_ANTIBOT.search(stderr):
+        return (
+            "YouTube pidió una verificación antibot para este video. No es un "
+            "problema de tu PC ni de la aplicación: pasa cuando YouTube "
+            "desconfía de la conexión desde la que se pide el video.\n\n"
+            "Probá de nuevo en unos minutos, o con otro video. Si estás usando "
+            "una VPN, desactivala y reintentá."
+        )
+    return f"No se pudo descargar el audio del video. Detalle técnico: {stderr[:600]}"
 
 
 def get_runtime_info() -> Dict[str, Any]:
@@ -191,6 +293,11 @@ def run_pipeline(job_id: str, url: str, model: str, jobs: Dict[str, Any], semito
         # ── Stage 1: Download ────────────────────────────────────────────────
         _set(jobs, job_id, JobStatus.DOWNLOADING, 5, "Descargando audio de YouTube...")
 
+        # Si yt-dlp se está actualizando, esperamos: lanzarlo en medio del
+        # reemplazo del .exe fallaría por un motivo ajeno al video.
+        if not _ytdlp_disponible.wait(timeout=300):
+            print("[yt-dlp] La actualización no terminó a tiempo; se sigue igual.")
+
         title_file = job_dir / "title.txt"
         dl = subprocess.run(
             [
@@ -200,6 +307,9 @@ def run_pipeline(job_id: str, url: str, model: str, jobs: Dict[str, Any], semito
                 "--output", raw_template,
                 "--no-progress",
                 "--no-warnings",
+                # Varios clientes: que uno quede desafiado por el antibot no
+                # alcanza para voltear la descarga (ver YOUTUBE_CLIENTS).
+                "--extractor-args", f"youtube:player_client={YOUTUBE_CLIENTS}",
                 # Emit the video title to a file without cancelling the download
                 "--no-simulate",
                 "--print-to-file", "%(title)s", str(title_file),
@@ -211,7 +321,7 @@ def run_pipeline(job_id: str, url: str, model: str, jobs: Dict[str, Any], semito
             creationflags=NO_WINDOW,
         )
         if dl.returncode != 0:
-            raise RuntimeError(f"yt-dlp falló: {dl.stderr[:600]}")
+            raise RuntimeError(_explicar_fallo_ytdlp(dl.stderr or ""))
 
         downloaded_files = list(job_dir.glob("raw_audio.*"))
         if not downloaded_files:

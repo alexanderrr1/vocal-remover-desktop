@@ -12,7 +12,13 @@ from fastapi.staticfiles import StaticFiles
 
 from . import updater
 from .job_store import DEFAULT_KIND, JobStatus, jobs, resolve_output
-from .processor import ALLOWED_MODELS, DEFAULT_MODEL, get_runtime_info, run_pipeline
+from .processor import (
+    ALLOWED_MODELS,
+    DEFAULT_MODEL,
+    get_runtime_info,
+    run_pipeline,
+    update_ytdlp_in_background,
+)
 
 # Single-worker executor: prevents two Demucs jobs competing for the same GPU
 _executor = ThreadPoolExecutor(max_workers=1)
@@ -45,6 +51,12 @@ async def lifespan(app: FastAPI):
     # Chequeo de actualizaciones: hilo propio, no el executor, que está ocupado
     # con la carga del modelo. Falla en silencio si no hay internet.
     updater.check_in_background()
+
+    # yt-dlp aparte: lo rompe YouTube, no nosotros, y sus arreglos salen cada
+    # pocos días. Esperar a publicar una versión de la app para entregarlos deja
+    # al usuario con el error antibot mientras tanto. Corre en paralelo a la
+    # carga del modelo, que de todos modos mantiene el botón deshabilitado.
+    update_ytdlp_in_background()
 
     yield
     _executor.shutdown(wait=False)
