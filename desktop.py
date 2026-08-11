@@ -161,6 +161,58 @@ def fit_to_content(window) -> None:
         pass
 
 
+def read_clipboard_text() -> str:
+    """Texto del portapapeles de Windows, vía Win32 con ctypes.
+
+    No usamos navigator.clipboard porque en WebView2 la lectura del
+    portapapeles pasa por el sistema de permisos del navegador y puede quedar
+    denegada sin que la app se entere. Esto es del proceso, no del WebView, y
+    no pide permiso a nadie.
+
+    OpenClipboard falla si otra aplicación lo tiene tomado en ese instante
+    (pasa, y es transitorio), así que se reintenta un puñado de veces."""
+    if os.name != "nt":
+        raise OSError("solo implementado en Windows")
+
+    import ctypes
+    from ctypes import wintypes
+
+    CF_UNICODETEXT = 13
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+
+    user32.OpenClipboard.argtypes = [wintypes.HWND]
+    user32.OpenClipboard.restype = wintypes.BOOL
+    user32.CloseClipboard.restype = wintypes.BOOL
+    user32.GetClipboardData.argtypes = [wintypes.UINT]
+    user32.GetClipboardData.restype = wintypes.HANDLE
+    kernel32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+    kernel32.GlobalLock.restype = wintypes.LPVOID
+    kernel32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+    kernel32.GlobalUnlock.restype = wintypes.BOOL
+
+    for intento in range(10):
+        if user32.OpenClipboard(None):
+            break
+        time.sleep(0.05)
+    else:
+        raise OSError("otra aplicación tiene tomado el portapapeles")
+
+    try:
+        handle = user32.GetClipboardData(CF_UNICODETEXT)
+        if not handle:
+            return ""  # hay algo, pero no es texto (una imagen, por ejemplo)
+        ptr = kernel32.GlobalLock(handle)
+        if not ptr:
+            return ""
+        try:
+            return ctypes.c_wchar_p(ptr).value or ""
+        finally:
+            kernel32.GlobalUnlock(handle)
+    finally:
+        user32.CloseClipboard()
+
+
 class Api:
     """JS API expuesta a la ventana: guardado nativo del resultado.
 
@@ -204,6 +256,13 @@ class Api:
         except Exception as exc:  # p. ej. permisos / disco
             return {"ok": False, "error": f"No se pudo guardar: {exc}"}
         return {"ok": True, "path": str(dest)}
+
+    def read_clipboard(self) -> dict:
+        """Texto del portapapeles, para el botón "Pegar link"."""
+        try:
+            return {"ok": True, "text": read_clipboard_text()}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
 
     def restart_for_update(self) -> dict:
         """Relanza la app para que la actualización preparada se aplique.

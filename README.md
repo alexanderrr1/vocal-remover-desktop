@@ -31,8 +31,9 @@ solo para tu usuario y **no pide permisos de administrador**.
 
 ## Cómo se usa
 
-Pegá la URL del video, elegí la calidad y dale **Procesar**. Cuando termina
-podés guardar dos archivos:
+Copiá la dirección del video en YouTube y tocá **Pegar link** —el botón que está
+al lado del campo—, o pegala a mano ahí mismo. Elegí la calidad y dale
+**Procesar**. Cuando termina podés guardar dos archivos:
 
 - **Descargar karaoke** — el tema sin la voz, para cantar encima.
 - **Descargar original** — el tema completo, tal como suena.
@@ -123,6 +124,25 @@ van a `%LOCALAPPDATA%\VocalRemover\workspace`.
 - PyTorch se instala en su variante **CPU** (portable a cualquier PC).
 - El código de `app/` es el mismo; las rutas de datos apuntan a
   `%LOCALAPPDATA%\VocalRemover` en vez de a volúmenes de Docker.
+
+### El botón "Pegar link"
+
+Existe porque en el uso real la gente confundía el campo de la URL con un botón
+y se quedaba mirándolo sin escribir nada. Por eso está teñido con el color de
+acento y no gris como el campo: si se pareciera al campo no resolvería nada.
+
+Lee el portapapeles por **dos caminos**, en este orden (`pasteLink()` en
+`index.html`):
+
+1. `pywebview.api.read_clipboard` → `read_clipboard_text()` en `desktop.py`,
+   que llama a Win32 con `ctypes` (`OpenClipboard` / `CF_UNICODETEXT`).
+2. `navigator.clipboard.readText()`, para cuando la UI se abre en un navegador
+   común durante el desarrollo.
+
+El orden importa: en WebView2 la lectura del portapapeles pasa por el sistema de
+permisos del navegador y puede quedar denegada sin aviso, mientras que la vía
+Win32 es del proceso y no depende de nadie. Si ninguno de los dos funciona el
+botón lo dice ("No se pudo") en vez de quedarse mudo simulando que pegó algo.
 
 ## Empaquetado (instalador)
 

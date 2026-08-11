@@ -106,8 +106,16 @@ select:focus { border-color: var(--accent); }
 select.with-hint { margin-bottom: 0; }
 
 /* ── URL input ── */
+.url-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
+}
+
 input[type=url] {
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   background: var(--surface2);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -115,7 +123,6 @@ input[type=url] {
   color: var(--text);
   font-size: 0.9rem;
   outline: none;
-  margin-bottom: 1.25rem;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 input[type=url]:focus {
@@ -123,6 +130,40 @@ input[type=url]:focus {
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 input[type=url]::placeholder { color: var(--text-dim); }
+
+/* Teñido con el color de acento, no gris como el campo: el problema que
+   resuelve es que la gente confunde el campo con un botón, así que el botón
+   real tiene que verse distinto del campo, no igual. */
+button.paste {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: rgba(124,58,237,0.14);
+  border: 1px solid rgba(124,58,237,0.55);
+  border-radius: 8px;
+  color: var(--accent-light);
+  padding: 0 0.95rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s, transform 0.1s;
+}
+button.paste:hover {
+  background: rgba(124,58,237,0.24);
+  border-color: var(--accent);
+}
+button.paste:active { transform: scale(0.97); }
+button.paste svg { flex: 0 0 auto; }
+
+/* Pantallas angostas: el botón pasa abajo y ocupa todo el ancho, antes de que
+   el campo quede demasiado apretado para leer la URL. */
+@media (max-width: 420px) {
+  .url-row { flex-direction: column; }
+  button.paste { justify-content: center; padding: 0.6rem 0.95rem; }
+}
 
 /* ── Panels (Tonalidad / Velocidad) ── */
 .panel {
@@ -437,9 +478,19 @@ footer {
   opción se descarga su modelo.</p>
 
   <label class="field-label" for="url-input">URL de YouTube</label>
-  <input type="url" id="url-input"
-         placeholder="https://www.youtube.com/watch?v=..."
-         autocomplete="off" spellcheck="false">
+  <div class="url-row">
+    <input type="url" id="url-input"
+           placeholder="https://www.youtube.com/watch?v=..."
+           autocomplete="off" spellcheck="false">
+    <button type="button" class="paste" id="paste-btn" onclick="pasteLink()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+           stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path>
+        <rect x="8" y="2" width="8" height="4" rx="1"></rect>
+      </svg>
+      <span id="paste-btn-text">Pegar link</span>
+    </button>
+  </div>
 
   <label class="field-label" for="pitch-slider">Tonalidad</label>
   <div class="panel">
@@ -804,6 +855,58 @@ async function pollUpdateStatus(seguir, intentos = 0) {
 document.getElementById('url-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') submitJob();
 });
+
+// ── Pegar link ──────────────────────────────────────────────────────────────
+// Dos caminos para leer el portapapeles, en este orden:
+//   1. El puente de Python (ctypes → Win32). Es el que corre en la app de
+//      escritorio y no depende de permisos del navegador.
+//   2. navigator.clipboard, para cuando se abre la UI en un navegador común.
+// Se prueba (1) primero justo por eso: en WebView2 la API del navegador puede
+// quedar bloqueada por permisos y no queremos que el botón dependa de eso.
+async function leerPortapapeles() {
+  if (window.pywebview && window.pywebview.api && window.pywebview.api.read_clipboard) {
+    const r = await window.pywebview.api.read_clipboard();
+    if (r && r.ok) return r.text || '';
+  }
+  if (navigator.clipboard && navigator.clipboard.readText) {
+    return (await navigator.clipboard.readText()) || '';
+  }
+  return null;  // null = no se pudo leer; '' = se leyó y estaba vacío
+}
+
+let pasteResetTimer = null;
+
+function flashPasteBtn(texto) {
+  const label = document.getElementById('paste-btn-text');
+  clearTimeout(pasteResetTimer);
+  label.textContent = texto;
+  pasteResetTimer = setTimeout(() => { label.textContent = 'Pegar link'; }, 1600);
+}
+
+async function pasteLink() {
+  const input = document.getElementById('url-input');
+  let texto;
+  try {
+    texto = await leerPortapapeles();
+  } catch {
+    texto = null;
+  }
+
+  if (texto === null) {
+    // Sin acceso al portapapeles el botón no sirve de nada; que el usuario lo
+    // sepa en vez de creer que pegó algo.
+    flashPasteBtn('No se pudo');
+    input.focus();
+    return;
+  }
+
+  texto = texto.trim();
+  if (!texto) { flashPasteBtn('Está vacío'); input.focus(); return; }
+
+  input.value = texto;
+  input.focus();
+  flashPasteBtn('Pegado ✓');
+}
 
 loadRuntimeInfo();
 pollModelStatus();
