@@ -13,12 +13,12 @@ exactamente la de antes.
 Cómo se instala, y por qué así
 ------------------------------
 Las ruedas CUDA van a un directorio aparte (`gpu-overlay`), no encima del torch
-que ya está. Es la diferencia entre una operación reversible y uma que no lo es:
+que ya está. Es la diferencia entre una operación reversible y una que no lo es:
 
 * Windows no deja sobrescribir un DLL cargado, y `torch_cpu.dll` está en uso
   apenas la app importa torch. Reemplazarlo exigiría el baile de stage +
   reinicio + reemplazo que ya hace el actualizador, con la app congelada varios
-  minutos mientras se descomprimen 2,7 GB.
+  minutos mientras se descomprimen 4,3 GB.
 * Con el overlay no se toca un solo archivo de la instalación. Activar es
   anteponerlo a `sys.path`; desactivar es dejar de hacerlo; desinstalar es
   borrar la carpeta. Nada puede quedar a medias.
