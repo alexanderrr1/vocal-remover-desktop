@@ -103,6 +103,19 @@ if os.environ.get("VR_UPDATE_APPLIED") != "1" and apply_staged_update():
     )
     sys.exit(0)
 
+# ── Aceleración por GPU ─────────────────────────────────────────────────────
+# Si el pack CUDA está instalado, hay que anteponerlo a sys.path ACÁ: apenas se
+# importe `app.main` la app carga demucs y con él torch, y una vez que torch
+# está en sys.modules cambiar sys.path no sirve de nada.
+from app import gpu as _gpu  # noqa: E402
+
+# Antes de activar: barrer un pack a medio bajar o uno que el usuario desactivó
+# y no se pudo borrar en caliente. Acá nada está cargado todavía.
+_gpu.limpiar_overlay_incompleto()
+
+if _gpu.activar_overlay():
+    print(f"[gpu] Pack CUDA activo desde {_gpu.overlay_dir()}")
+
 import uvicorn  # noqa: E402
 import webview  # noqa: E402
 from app.main import app  # noqa: E402
@@ -263,6 +276,36 @@ class Api:
             return {"ok": True, "text": read_clipboard_text()}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
+
+    def restart_app(self) -> dict:
+        """Reinicia la app sin aplicar ninguna actualización.
+
+        Lo usa la activación de la GPU: el pack CUDA ya está en disco, pero
+        anteponerlo a sys.path sólo se puede hacer antes de importar torch, o
+        sea al arrancar."""
+        from app.job_store import jobs, JobStatus
+
+        activos = [
+            j for j in jobs.values()
+            if j.get("status") not in (JobStatus.DONE, JobStatus.FAILED)
+        ]
+        if activos:
+            return {"ok": False, "error": "Hay un procesamiento en curso. "
+                                          "Esperá a que termine y reintentá."}
+
+        import subprocess
+
+        try:
+            subprocess.Popen(
+                [sys.executable, str(base_dir() / "desktop.py")],
+                cwd=str(base_dir()),
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0,
+            )
+        except Exception as exc:
+            return {"ok": False, "error": f"No se pudo reiniciar: {exc}"}
+
+        webview.active_window().destroy()
+        return {"ok": True}
 
     def restart_for_update(self) -> dict:
         """Relanza la app para que la actualización preparada se aplique.

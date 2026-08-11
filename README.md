@@ -50,6 +50,16 @@ la que vas a cantar.
 El procesamiento usa el procesador de tu PC y tarda unos minutos según el largo
 del tema y la máquina.
 
+## Si tenés placa de video NVIDIA
+
+La aplicación te lo dice sola: aparece un aviso ofreciéndote activar la
+**aceleración por GPU**. Medido en una RTX 3060, el procesamiento pasa de 68 a
+18 segundos por cada minuto de audio — casi cuatro veces más rápido.
+
+Se descargan 2,4 GB una sola vez, que ocupan 4,3 GB en disco. Podés desactivarla
+cuando quieras y recuperás el espacio. Si tu PC no tiene una placa NVIDIA con
+driver, este aviso no aparece y no hay nada que hacer.
+
 ## Si un video no se puede descargar
 
 De vez en cuando YouTube pide una **verificación antibot** y la descarga falla.
@@ -165,6 +175,51 @@ Los pesos de Demucs (~640 MB) **no van dentro del `.exe`**: el instalador los
 descarga durante la instalación, con barra de progreso. Es una tarea desmarcable
 —para instalar sin conexión—, se omite si ya están en la caché, y si falla no
 aborta la instalación: la app los baja sola en la primera ejecución.
+
+## Aceleración por GPU (pack opcional)
+
+El instalador trae PyTorch en su variante **CPU** (`install.ps1:21`, índice
+`whl/cpu`). Pesa poco y corre en cualquier PC, pero está compilado sin CUDA: en
+una máquina con GPU NVIDIA, `torch.cuda.is_available()` igual devuelve `False`.
+Traer la variante CUDA para todo el mundo no era opción — la rueda de
+`torch 2.1.2+cu121` sola pesa 2,36 GB contra los 242 MB del instalador entero.
+
+Por eso el pack CUDA se baja **a pedido y sólo donde sirve**: `app/gpu.py`
+consulta `nvidia-smi` y la UI muestra el banner únicamente si hay una GPU NVIDIA
+con driver ≥ 527.41 (el mínimo de CUDA 12.1). En una PC sin GPU la aplicación
+no menciona el tema.
+
+### Overlay en vez de reemplazo
+
+Las ruedas se instalan con `pip install --no-deps --target` en
+`%LOCALAPPDATA%\VocalRemover\gpu-overlay`, **no** encima del torch existente.
+`desktop.py` antepone esa carpeta a `sys.path` al arrancar, antes de que nada
+importe torch — una vez que torch está en `sys.modules`, tocar `sys.path` ya no
+cambia nada.
+
+La razón es que Windows no deja sobrescribir un DLL cargado, y `torch_cpu.dll`
+está en uso apenas la app importa torch. Reemplazarlo exigiría el baile de
+stage + reinicio + reemplazo del actualizador, con la app congelada varios
+minutos descomprimiendo. Con el overlay no se toca un archivo de la instalación:
+activar es anteponer la carpeta, desactivar es dejar de hacerlo, desinstalar es
+borrarla. Nada queda a medias.
+
+El precio son los dos torch en disco. Medido: **2,4 GB de descarga que ocupan
+4,3 GB descomprimidos** (las ruedas CUDA traen cuDNN y cuBLAS adentro), más los
+~250 MB del torch CPU que queda intacto. Antes de empezar se verifica que haya
+6 GB libres: quedarse sin disco a mitad de camino desperdicia la descarga entera.
+
+### El sello `.instalado`
+
+Una carpeta con archivos adentro no prueba nada — si la descarga se corta queda
+un `gpu-overlay` a medias, con un `torch/` incompleto que rompería el arranque.
+El sello se escribe **último**, así que su presencia sí significa "esto está
+entero", y `activar_overlay()` no mira otra cosa.
+
+De ahí sale gratis el borrado diferido: cuando el usuario desactiva la GPU se
+quita el sello enseguida (eso ya la desactiva), y si los DLL están en uso y
+Windows no deja borrar, `limpiar_overlay_incompleto()` lo termina en el próximo
+arranque. Carpeta sin sello = borrar, sin importar cómo llegó a ese estado.
 
 ## YouTube y el control antibot
 

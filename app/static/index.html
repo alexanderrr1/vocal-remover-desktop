@@ -385,6 +385,74 @@ button.download .what {
 .model-banner.error .spinner { display: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
+/* ── Banner de GPU ──
+   Mismo formato que el de actualización, en violeta en vez de verde: son dos
+   avisos distintos y no tienen que confundirse. Sólo aparece en PCs con GPU
+   NVIDIA; en el resto la app no menciona el tema. */
+.gpu-banner {
+  display: none;
+  margin-bottom: 1rem;
+  background: rgba(124,58,237,0.08);
+  border: 1px solid rgba(124,58,237,0.3);
+  border-radius: 10px;
+  padding: 0.75rem 0.9rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.gpu-banner.visible { display: block; }
+.gpu-banner .row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.gpu-banner .msg { flex: 1 1 auto; min-width: 12rem; }
+.gpu-banner strong { color: var(--accent-light); }
+.gpu-banner .aclaracion {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  margin-top: 0.2rem;
+}
+.gpu-banner button {
+  flex: 0 0 auto;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  padding: 0.45rem 0.9rem;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.gpu-banner button:hover:not(:disabled) { background: var(--accent-light); }
+.gpu-banner button:disabled { opacity: 0.55; cursor: default; }
+.gpu-banner .track {
+  margin-top: 0.6rem;
+  height: 5px;
+  background: rgba(255,255,255,0.12);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.gpu-banner .track > div {
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+.gpu-banner .quitar {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 0.78rem;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+.gpu-banner .quitar:hover { color: var(--text); background: none; }
+
 /* ── Update banner ── */
 .update-banner {
   display: none;
@@ -456,6 +524,16 @@ footer {
 
   <div class="model-banner" id="model-banner">
     <span class="spinner"></span><span id="model-banner-text">Preparando el modelo de IA...</span>
+  </div>
+
+  <div class="gpu-banner" id="gpu-banner">
+    <div class="row">
+      <div class="msg" id="gpu-text"></div>
+      <button id="gpu-btn" onclick="gpuAction()"></button>
+    </div>
+    <div class="track" id="gpu-track" style="display:none">
+      <div id="gpu-fill"></div>
+    </div>
   </div>
 
   <div class="update-banner" id="update-banner">
@@ -856,6 +934,149 @@ document.getElementById('url-input').addEventListener('keydown', e => {
   if (e.key === 'Enter') submitJob();
 });
 
+// ── Aceleración por GPU ─────────────────────────────────────────────────────
+// El banner sólo existe para quien tiene una GPU NVIDIA con driver. En el
+// resto de las PCs la app no menciona el tema: ofrecer una descarga de 2,4 GB
+// que no va a servir es peor que no decir nada.
+let gpuState = null;
+
+function gpuMensaje(titulo, aclaracion) {
+  const cont = document.getElementById('gpu-text');
+  cont.textContent = '';
+  const fuerte = document.createElement('strong');
+  fuerte.textContent = titulo;
+  cont.appendChild(fuerte);
+  if (aclaracion) {
+    const span = document.createElement('span');
+    span.className = 'aclaracion';
+    span.textContent = aclaracion;
+    cont.appendChild(span);
+  }
+}
+
+function renderGpu(s) {
+  gpuState = s;
+  const banner = document.getElementById('gpu-banner');
+  const btn    = document.getElementById('gpu-btn');
+  const track  = document.getElementById('gpu-track');
+  const hw     = s.hardware || {};
+
+  // Sin GPU y sin pack instalado no hay nada que ofrecer ni que informar.
+  if (!hw.disponible && !s.instalado) {
+    banner.classList.remove('visible');
+    return;
+  }
+
+  banner.classList.add('visible');
+  track.style.display = 'none';
+  btn.style.display = '';
+  btn.disabled = false;
+  btn.className = '';
+
+  if (s.activo) {
+    gpuMensaje('Aceleración por GPU activa',
+               (hw.nombre || 'GPU NVIDIA') + ' — el procesamiento usa la placa de video.');
+    btn.className = 'quitar';
+    btn.textContent = 'Desactivar';
+    return;
+  }
+
+  if (s.instalado) {
+    gpuMensaje('La GPU quedó lista',
+               'Reiniciá la aplicación para empezar a usarla.');
+    btn.textContent = 'Reiniciar ahora';
+    return;
+  }
+
+  if (s.status === 'downloading' || s.status === 'installing') {
+    const instalando = s.status === 'installing';
+    gpuMensaje(instalando ? 'Instalando el pack de GPU...'
+                          : 'Descargando el pack de GPU...',
+               instalando
+                 ? 'Descomprimiendo 4,3 GB. Ya falta poco.'
+                 : 'Son unos 2,4 GB y se bajan una sola vez. Podés seguir ' +
+                   'usando la aplicación mientras tanto.');
+    btn.style.display = 'none';
+    track.style.display = '';
+    document.getElementById('gpu-fill').style.width = (s.progress || 0) + '%';
+    return;
+  }
+
+  if (s.status === 'error') {
+    gpuMensaje('No se pudo activar la GPU', s.error || '');
+    btn.textContent = 'Reintentar';
+    return;
+  }
+
+  gpuMensaje('Detectamos tu ' + (hw.nombre || 'GPU NVIDIA'),
+             'Activar la aceleración por GPU hace el procesamiento mucho más ' +
+             'rápido. Se descargan 2,4 GB una sola vez y ocupan 4,3 GB en disco. ' +
+             'Podés desactivarla cuando quieras.');
+  btn.textContent = 'Activar GPU';
+}
+
+async function gpuAction() {
+  const s = gpuState || {};
+  const btn = document.getElementById('gpu-btn');
+
+  if (s.activo) {
+    if (!confirm('¿Desactivar la aceleración por GPU? Se liberan 4,3 GB de disco ' +
+                 'y la aplicación vuelve a procesar con el procesador.')) return;
+    btn.disabled = true;
+    try {
+      const s2 = await (await fetch('/gpu-uninstall', { method: 'POST' })).json();
+      renderGpu(s2);
+      // Si torch está cargado desde el pack, Windows no deja borrar los DLL en
+      // caliente: ya quedó desactivado y el borrado lo termina el próximo
+      // arranque. Decirlo, en vez de dejar la carpeta ahí sin explicación.
+      if (s2.reinicio_pendiente) {
+        showError('La GPU quedó desactivada. Los 4,3 GB se liberan la próxima ' +
+                  'vez que abras la aplicación.');
+      }
+    } catch { btn.disabled = false; }
+    return;
+  }
+
+  if (s.instalado) {
+    if (window.pywebview && window.pywebview.api && window.pywebview.api.restart_app) {
+      const r = await window.pywebview.api.restart_app();
+      if (!r.ok) showError(r.error || 'No se pudo reiniciar la aplicación.');
+    } else {
+      showError('Cerrá y volvé a abrir la aplicación para empezar a usar la GPU.');
+    }
+    return;
+  }
+
+  btn.disabled = true;
+  try {
+    const resp = await fetch('/gpu-install', { method: 'POST' });
+    if (!resp.ok) {
+      const d = await resp.json().catch(() => ({}));
+      btn.disabled = false;
+      return showError(d.detail || 'No se pudo iniciar la descarga del pack de GPU.');
+    }
+    renderGpu(await resp.json());
+    pollGpuStatus();
+  } catch {
+    btn.disabled = false;
+    showError('No se puede conectar al servidor interno de la app.');
+  }
+}
+
+async function pollGpuStatus() {
+  try {
+    const s = await (await fetch('/gpu-status')).json();
+    renderGpu(s);
+    // Sólo se re-consulta mientras baja: el resto de los estados no cambian
+    // solos, y consultar en vano despierta a nvidia-smi cada dos segundos.
+    if (s.status === 'downloading' || s.status === 'installing') {
+      setTimeout(pollGpuStatus, 1500);
+    }
+  } catch {
+    // Silencio: sin servidor no hay nada que mostrar.
+  }
+}
+
 // ── Pegar link ──────────────────────────────────────────────────────────────
 // Dos caminos para leer el portapapeles, en este orden:
 //   1. El puente de Python (ctypes → Win32). Es el que corre en la app de
@@ -910,6 +1131,7 @@ async function pasteLink() {
 
 loadRuntimeInfo();
 pollModelStatus();
+pollGpuStatus();
 // El chequeo lo hace el backend al arrancar; acá solo leemos el resultado.
 setTimeout(() => pollUpdateStatus(false), 1200);
 </script>

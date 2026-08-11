@@ -1,5 +1,6 @@
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -107,7 +108,7 @@ def update_ytdlp() -> None:
         proc = subprocess.run(
             [YTDLP, "-U"],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=300,
             creationflags=NO_WINDOW,
         )
@@ -254,7 +255,7 @@ def _encode_mp3(src: Path, dest: Path, filters: list) -> None:
     proc = subprocess.run(
         cmd,
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         timeout=120,
         creationflags=NO_WINDOW,
     )
@@ -316,7 +317,7 @@ def run_pipeline(job_id: str, url: str, model: str, jobs: Dict[str, Any], semito
                 url,
             ],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=300,
             creationflags=NO_WINDOW,
         )
@@ -349,7 +350,7 @@ def run_pipeline(job_id: str, url: str, model: str, jobs: Dict[str, Any], semito
                 str(converted_wav),
             ],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             timeout=120,
             creationflags=NO_WINDOW,
         )
@@ -359,53 +360,23 @@ def run_pipeline(job_id: str, url: str, model: str, jobs: Dict[str, Any], semito
         downloaded.unlink(missing_ok=True)
 
         # ── Stage 3: Demucs separation ───────────────────────────────────────
-        device_label = "GPU" if demucs_device == "cuda" else "CPU"
-        _set(jobs, job_id, JobStatus.SEPARATING, 30, f"Separando voces con IA ({device_label})...")
+        rc, details = _separar(demucs_device, model, converted_wav, demucs_out_dir,
+                               jobs, job_id)
 
-        demucs_cmd = [
-            sys.executable, "-m", "demucs.separate",
-            "--two-stems", "vocals",
-            "-n", model,
-            "--device", demucs_device,
-            "-o", str(demucs_out_dir),
-            str(converted_wav),
-        ]
-        if demucs_device == "cuda":
-            demucs_cmd += ["--segment", "7"]  # limita VRAM, evita crash del driver GPU
+        # La GPU puede quedarse sin memoria: depende de la placa, de su VRAM y de
+        # lo que estén usando el resto de los programas abiertos, así que no se
+        # puede saber de antemano. En vez de dejar el trabajo muerto —el usuario
+        # ya esperó la descarga y la conversión— se rehace en CPU: tarda más,
+        # pero termina.
+        if rc != 0 and demucs_device == "cuda" and _ES_OOM_GPU.search(details or ""):
+            print("[demucs] La GPU se quedó sin memoria; se reintenta en CPU.")
+            shutil.rmtree(demucs_out_dir, ignore_errors=True)
+            demucs_out_dir.mkdir(parents=True, exist_ok=True)
+            rc, details = _separar("cpu", model, converted_wav, demucs_out_dir,
+                                   jobs, job_id, aviso="la GPU se quedó sin memoria")
 
-        demucs_proc = subprocess.Popen(
-            demucs_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            creationflags=NO_WINDOW,
-        )
-
-        # Parse tqdm progress from stderr to update 30→88%
-        progress_thread = threading.Thread(
-            target=_watch_demucs_progress,
-            args=(demucs_proc, jobs, job_id),
-            daemon=True,
-        )
-        progress_thread.start()
-        demucs_proc.wait(timeout=3600)
-        progress_thread.join(timeout=5)
-
-        if demucs_proc.returncode != 0:
-            # Drain any remaining stderr/stdout so the UI surfaces the real failure.
-            try:
-                err = demucs_proc.stderr.read()
-            except Exception:
-                err = ""
-            try:
-                out = demucs_proc.stdout.read()
-            except Exception:
-                out = ""
-
-            details = (err or out).strip()
-            if not details:
-                details = "sin salida de error"
-            raise RuntimeError(f"Demucs falló (exit {demucs_proc.returncode}): {details[:1200]}")
+        if rc != 0:
+            raise RuntimeError(f"Demucs falló (exit {rc}): {(details or 'sin salida de error')[:1200]}")
 
         # Locate no_vocals.wav — path: {out}/{model}/audio/no_vocals.wav
         no_vocals = demucs_out_dir / model / "audio" / "no_vocals.wav"
@@ -457,12 +428,83 @@ def run_pipeline(job_id: str, url: str, model: str, jobs: Dict[str, Any], semito
         raise
 
 
-def _watch_demucs_progress(proc: subprocess.Popen, jobs: Dict[str, Any], job_id: str) -> None:
+# Lo que dice PyTorch cuando la VRAM no alcanza. No se busca "out of memory" a
+# secas: un "DefaultCPUAllocator: not enough memory" es quedarse sin RAM, y
+# reintentar en CPU ahí no arreglaría nada.
+_ES_OOM_GPU = re.compile(r"CUDA out of memory|CUBLAS_STATUS_ALLOC_FAILED", re.I)
+
+
+def _separar(device: str, model: str, entrada: Path, salida: Path,
+             jobs: Dict[str, Any], job_id: str, aviso: str = "") -> tuple:
+    """Corre Demucs en el dispositivo pedido. Devuelve (returncode, salida).
+
+    Está apartado del pipeline porque se invoca dos veces: el reintento en CPU
+    tras un OOM de GPU tiene que ser exactamente la misma llamada con otro
+    dispositivo, no una copia que se despegue con el tiempo."""
+    etiqueta = "GPU" if device == "cuda" else "CPU"
+    extra = f" ({aviso}, se sigue en CPU)" if aviso else f" ({etiqueta})"
+    _set(jobs, job_id, JobStatus.SEPARATING, 30, f"Separando voces con IA{extra}...")
+
+    cmd = [
+        sys.executable, "-m", "demucs.separate",
+        "--two-stems", "vocals",
+        "-n", model,
+        "--device", device,
+        "-o", str(salida),
+        str(entrada),
+    ]
+    if device == "cuda":
+        cmd += ["--segment", "7"]  # limita VRAM, evita crash del driver GPU
+
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", errors="replace",
+        creationflags=NO_WINDOW,
+    )
+
+    # Parse tqdm progress from stderr to update 30→88%.
+    #
+    # El hilo guarda lo que va leyendo porque es el único que lo ve: consume
+    # stderr hasta el final, así que si Demucs falla, leerlo acá después
+    # devuelve vacío y el error llegaba a la UI como "sin salida de error".
+    ultimas = []
+    hilo = threading.Thread(
+        target=_watch_demucs_progress, args=(proc, jobs, job_id, ultimas), daemon=True,
+    )
+    hilo.start()
+    proc.wait(timeout=3600)
+    hilo.join(timeout=5)
+
+    if proc.returncode == 0:
+        return 0, ""
+
+    try:
+        resto = proc.stdout.read()
+    except Exception:
+        resto = ""
+    detalle = "\n".join(ultimas).strip() or (resto or "").strip()
+    return proc.returncode, detalle
+
+
+def _watch_demucs_progress(proc: subprocess.Popen, jobs: Dict[str, Any], job_id: str,
+                           buffer: list = None) -> None:
     """
     Read Demucs stderr line-by-line and extract tqdm percentage.
     Demucs prints lines like: "  3%|███      | 1/32 [00:14<02:20]"
     We map demucs 0-100% → our display 30-88%.
+
+    Va dejando las últimas líneas en `buffer` para que quien llama pueda
+    explicar un fallo: este hilo vacía stderr, y sin esto no queda nada que
+    leer después. Se guardan sólo las que no son barra de progreso —las de tqdm
+    son ruido— y como mucho 40, que alcanzan para un traceback.
     """
+    # El proceso se abre con encoding="utf-8", errors="replace". Sin eso Python
+    # decodifica con la ANSI del sistema (cp1252 acá) y el primer byte que no
+    # exista en esa tabla mata este hilo con UnicodeDecodeError. El `except` de
+    # abajo se lo tragaba y la barra se quedaba clavada en 30% toda la
+    # separación, aunque el trabajo terminara bien.
     pattern = re.compile(r"(\d+)%\|")
     try:
         for line in proc.stderr:
@@ -472,5 +514,8 @@ def _watch_demucs_progress(proc: subprocess.Popen, jobs: Dict[str, Any], job_id:
                 scaled = 30 + int(pct * 0.58)  # 30% + up to 58pp = 88%
                 jobs[job_id]["progress"] = scaled
                 jobs[job_id]["message"] = f"Separando voces... {pct}%"
+            elif buffer is not None and line.strip():
+                buffer.append(line.rstrip())
+                del buffer[:-40]
     except Exception:
         pass

@@ -10,7 +10,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import updater
+from . import gpu, updater
 from .job_store import DEFAULT_KIND, JobStatus, jobs, resolve_output
 from .processor import (
     ALLOWED_MODELS,
@@ -131,6 +131,34 @@ async def download_update() -> Dict[str, Any]:
     Devuelve enseguida: el avance se sigue por `progress` en /update-status."""
     updater.download_in_background()
     return updater.get_state()
+
+
+@app.get("/gpu-status")
+async def gpu_status() -> Dict[str, Any]:
+    """Hardware NVIDIA detectado y estado del pack CUDA opcional.
+
+    La UI muestra la sección de GPU sólo si `hardware.disponible` es True: en
+    una PC sin GPU NVIDIA no tiene que aparecer nada."""
+    estado = gpu.get_state()
+    estado["hardware"] = gpu.detectar_gpu()
+    estado["activo"] = get_runtime_info()["selected_device"] == "cuda"
+    return estado
+
+
+@app.post("/gpu-install")
+async def gpu_install() -> Dict[str, Any]:
+    """Descarga el pack CUDA (~2,4 GB). Devuelve enseguida; el avance se sigue
+    consultando /gpu-status."""
+    hardware = gpu.detectar_gpu()
+    if not hardware["disponible"]:
+        raise HTTPException(status_code=409, detail=hardware["motivo"])
+    return gpu.instalar_en_segundo_plano()
+
+
+@app.post("/gpu-uninstall")
+async def gpu_uninstall() -> Dict[str, Any]:
+    """Borra el pack y vuelve a CPU en el próximo arranque."""
+    return gpu.desinstalar()
 
 
 @app.get("/model-status")
